@@ -138,6 +138,41 @@
       background: var(--bg); color: var(--text); min-width: 200px; font-size: 0.9rem;
     }
     .newsletter-form input:focus { outline: none; border-color: var(--accent); }
+    .newsletter-status {
+      font-size: 0.82rem;
+      padding: 0.2rem 0.6rem;
+      border-radius: 999px;
+      display: none;
+    }
+    .newsletter-status.subscribed {
+      display: inline-block;
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+    .newsletter-status.unsubscribed {
+      display: inline-block;
+      background: var(--bg-subtle);
+      color: var(--text-muted);
+    }
+    .newsletter-status.pending {
+      display: inline-block;
+      background: #fef6e0;
+      color: #9a7b0a;
+    }
+    .spam-notice {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      background: #fef6e0;
+      padding: 0.4rem 0.8rem;
+      border-radius: 6px;
+      border-left: 3px solid var(--warning);
+      display: none;
+      width: 100%;
+      margin-top: 0.4rem;
+    }
+    .spam-notice.show {
+      display: block;
+    }
     .stats-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.85rem; margin-bottom: 2rem; }
     @media (max-width: 640px) { .stats-strip { grid-template-columns: repeat(2, 1fr); } }
     .stat-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 1rem 1.1rem; text-align: center; }
@@ -407,19 +442,23 @@
       <div class="newsletter">
         <div class="newsletter-copy">
           <strong>Email me the Word of the Day</strong>
-          <span>One advanced word every morning · Free · Unsubscribe anytime · No account needed</span>
+          <span>One advanced word every morning · Free · Unsubscribe anytime</span>
         </div>
-        <div class="newsletter-form">
+        <div class="newsletter-form" id="newsletter-form">
           <input type="email" id="nl-email" placeholder="you@email.com" autocomplete="email" />
-          <button class="btn btn-primary btn-sm" type="button" onclick="subscribeNewsletter()">Subscribe</button>
+          <button class="btn btn-primary btn-sm" id="nl-subscribe-btn" onclick="handleNewsletterSubscribe()">Subscribe</button>
+          <span class="newsletter-status" id="nl-status"></span>
+          <div class="spam-notice" id="spam-notice">
+            💡 <strong>Tip:</strong> If you don't see our emails, please check your <strong>Spam/Junk</strong> folder and mark us as "Not Spam" to ensure you receive your daily word!
+          </div>
         </div>
       </div>
 
       <div class="stats-strip">
-        <div class="stat-card"><div class="stat-value" id="stat-streak">7</div><div class="stat-label">Day streak</div></div>
-        <div class="stat-card"><div class="stat-value" id="stat-known">142</div><div class="stat-label">Words known</div></div>
-        <div class="stat-card"><div class="stat-value" id="stat-due">12</div><div class="stat-label">Due for review</div></div>
-        <div class="stat-card"><div class="stat-value" id="stat-xp">1,280</div><div class="stat-label">XP this week</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-streak">-</div><div class="stat-label">Day streak</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-known">-</div><div class="stat-label">Words known</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-due">-</div><div class="stat-label">Due for review</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-xp">-</div><div class="stat-label">XP this week</div></div>
       </div>
 
       <div class="panel" style="max-width:720px;margin:0 auto 1.25rem;">
@@ -638,6 +677,8 @@
     }
 
     let authMode = 'signup';
+    let userWords = [];
+    let currentLearnWord = 'ephemeral';
 
     function setLoading(isLoading) {
       const primaryBtn = document.getElementById('auth-primary-btn');
@@ -654,7 +695,6 @@
         primaryBtn.disabled = false;
         secondaryBtn.disabled = false;
         secondaryBtn.style.opacity = '1';
-        // Restore button text based on mode
         if (authMode === 'signup') {
           primaryBtn.textContent = 'Create account';
         } else {
@@ -664,7 +704,6 @@
     }
 
     function openAuth() {
-      // Reset to signup mode
       authMode = 'signup';
       const title = document.getElementById('auth-title');
       const description = document.getElementById('auth-description');
@@ -684,13 +723,11 @@
       errorEl.classList.remove('show');
       successEl.classList.remove('show');
       
-      // Reset button states
       primaryBtn.disabled = false;
       primaryBtn.classList.remove('loading');
       secondaryBtn.disabled = false;
       secondaryBtn.style.opacity = '1';
       
-      // Clear fields
       document.getElementById('auth-email').value = '';
       document.getElementById('auth-pass').value = '';
       
@@ -710,18 +747,15 @@
       const errorEl = document.getElementById('auth-error');
       const successEl = document.getElementById('auth-success');
       
-      // Clear any previous messages
       errorEl.classList.remove('show');
       successEl.classList.remove('show');
       
-      // Reset button states
       primaryBtn.disabled = false;
       primaryBtn.classList.remove('loading');
       secondaryBtn.disabled = false;
       secondaryBtn.style.opacity = '1';
       
       if (authMode === 'signup') {
-        // Switch to sign in
         authMode = 'signin';
         title.textContent = 'Welcome back';
         description.textContent = 'Sign in to access your saved vocabulary.';
@@ -731,7 +765,6 @@
         secondaryBtn.onclick = toggleAuthMode;
         note.style.display = 'none';
       } else {
-        // Switch to sign up
         authMode = 'signup';
         title.textContent = 'Keep your progress';
         description.textContent = 'Create an account to save your vocabulary progress across devices.';
@@ -743,52 +776,50 @@
       }
     }
 
-    // Close modal when clicking overlay
     document.getElementById('auth-modal').addEventListener('click', function(e) {
       if (e.target === this) closeAuth();
     });
 
     async function handleSignUp() {
-      const email = document.getElementById('auth-email').value.trim();
-      const password = document.getElementById('auth-pass').value;
-      const errorEl = document.getElementById('auth-error');
-      const successEl = document.getElementById('auth-success');
-      
-      errorEl.classList.remove('show');
-      successEl.classList.remove('show');
-      
-      if (!email) {
+    const email = document.getElementById('auth-email').value.trim();
+    const password = document.getElementById('auth-pass').value;
+    const errorEl = document.getElementById('auth-error');
+    const successEl = document.getElementById('auth-success');
+    
+    errorEl.classList.remove('show');
+    successEl.classList.remove('show');
+    
+    if (!email) {
         errorEl.textContent = 'Email is required';
         errorEl.classList.add('show');
         return;
-      }
-      
-      if (!password) {
+    }
+    
+    if (!password) {
         errorEl.textContent = 'Password is required';
         errorEl.classList.add('show');
         return;
-      }
-      
-      if (password.length > 128) {
+    }
+    
+    if (password.length > 128) {
         errorEl.textContent = 'Password must be 128 characters or less';
         errorEl.classList.add('show');
         return;
-      }
-      
-      // Show loading state
-      setLoading(true);
-      
-      try {
+    }
+    
+    setLoading(true);
+    
+    try {
         const formData = new FormData();
         formData.append('email', email);
         formData.append('password', password);
         
         const response = await fetch('/signup/', {
-          method: 'POST',
-          headers: {
-            'X-CSRFToken': getCsrfToken(),
-          },
-          body: formData
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': getCsrfToken(),
+            },
+            body: formData
         });
         
         const data = await response.json();
@@ -796,54 +827,56 @@
         setLoading(false);
         
         if (response.ok) {
-          successEl.textContent = data.message || 'Account created successfully!';
-          successEl.classList.add('show');
-          errorEl.classList.remove('show');
-          
-          setTimeout(() => {
-            closeAuth();
-            window.location.reload();
-          }, 1500);
+            successEl.textContent = data.message || 'Account created successfully!';
+            successEl.classList.add('show');
+            errorEl.classList.remove('show');
+            
+            // Sync local data to database
+            await syncLocalData();
+            
+            setTimeout(() => {
+                closeAuth();
+                window.location.reload();
+            }, 1500);
         } else {
-          errorEl.textContent = data.error || 'An error occurred';
-          errorEl.classList.add('show');
+            errorEl.textContent = data.error || 'An error occurred';
+            errorEl.classList.add('show');
         }
-      } catch (error) {
+    } catch (error) {
         setLoading(false);
         errorEl.textContent = 'Network error. Please try again.';
         errorEl.classList.add('show');
-      }
     }
+}
 
     async function handleSignIn() {
-      const email = document.getElementById('auth-email').value.trim();
-      const password = document.getElementById('auth-pass').value;
-      const errorEl = document.getElementById('auth-error');
-      const successEl = document.getElementById('auth-success');
-      
-      errorEl.classList.remove('show');
-      successEl.classList.remove('show');
-      
-      if (!email || !password) {
+    const email = document.getElementById('auth-email').value.trim();
+    const password = document.getElementById('auth-pass').value;
+    const errorEl = document.getElementById('auth-error');
+    const successEl = document.getElementById('auth-success');
+    
+    errorEl.classList.remove('show');
+    successEl.classList.remove('show');
+    
+    if (!email || !password) {
         errorEl.textContent = 'Email and password are required';
         errorEl.classList.add('show');
         return;
-      }
-      
-      // Show loading state
-      setLoading(true);
-      
-      try {
+    }
+    
+    setLoading(true);
+    
+    try {
         const formData = new FormData();
         formData.append('email', email);
         formData.append('password', password);
         
         const response = await fetch('/signin/', {
-          method: 'POST',
-          headers: {
-            'X-CSRFToken': getCsrfToken(),
-          },
-          body: formData
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': getCsrfToken(),
+            },
+            body: formData
         });
         
         const data = await response.json();
@@ -851,24 +884,27 @@
         setLoading(false);
         
         if (response.ok) {
-          successEl.textContent = data.message || 'Signed in successfully!';
-          successEl.classList.add('show');
-          errorEl.classList.remove('show');
-          
-          setTimeout(() => {
-            closeAuth();
-            window.location.reload();
-          }, 1500);
+            successEl.textContent = data.message || 'Signed in successfully!';
+            successEl.classList.add('show');
+            errorEl.classList.remove('show');
+            
+            // Sync local data to database
+            await syncLocalData();
+            
+            setTimeout(() => {
+                closeAuth();
+                window.location.reload();
+            }, 1500);
         } else {
-          errorEl.textContent = data.error || 'Invalid credentials';
-          errorEl.classList.add('show');
+            errorEl.textContent = data.error || 'Invalid credentials';
+            errorEl.classList.add('show');
         }
-      } catch (error) {
+    } catch (error) {
         setLoading(false);
         errorEl.textContent = 'Network error. Please try again.';
         errorEl.classList.add('show');
-      }
     }
+}
 
     async function handleSignOut() {
       try {
@@ -890,7 +926,286 @@
       }
     }
 
-    // The rest of your JavaScript functions
+    // Newsletter Functions
+    async function loadNewsletterStatus() {
+      const emailInput = document.getElementById('nl-email');
+      const statusEl = document.getElementById('nl-status');
+      const subscribeBtn = document.getElementById('nl-subscribe-btn');
+      const spamNotice = document.getElementById('spam-notice');
+      
+      const isAuthenticated = {% if user.is_authenticated %}true{% else %}false{% endif %};
+      
+      if (!isAuthenticated) {
+        subscribeBtn.textContent = 'Subscribe';
+        subscribeBtn.onclick = handleNewsletterSubscribe;
+        statusEl.className = 'newsletter-status';
+        statusEl.textContent = '';
+        statusEl.style.display = 'none';
+        spamNotice.classList.remove('show');
+        return;
+      }
+      
+      try {
+        const response = await fetch('/newsletter/status/');
+        const data = await response.json();
+        
+        if (response.ok) {
+          emailInput.value = data.email;
+          
+          if (data.is_subscribed) {
+            subscribeBtn.textContent = 'Unsubscribe';
+            subscribeBtn.onclick = handleNewsletterUnsubscribe;
+            statusEl.className = 'newsletter-status subscribed';
+            statusEl.textContent = '✓ Subscribed';
+            statusEl.style.display = 'inline-block';
+            spamNotice.classList.add('show');
+          } else if (data.requires_confirmation) {
+            subscribeBtn.textContent = 'Resend confirmation';
+            subscribeBtn.onclick = handleNewsletterSubscribe;
+            statusEl.className = 'newsletter-status pending';
+            statusEl.textContent = '⏳ Confirm your email';
+            statusEl.style.display = 'inline-block';
+            spamNotice.classList.remove('show');
+          } else {
+            subscribeBtn.textContent = 'Subscribe';
+            subscribeBtn.onclick = handleNewsletterSubscribe;
+            statusEl.className = 'newsletter-status unsubscribed';
+            statusEl.textContent = 'Not subscribed';
+            statusEl.style.display = 'inline-block';
+            spamNotice.classList.remove('show');
+          }
+        }
+      } catch (error) {
+        console.error('Error loading newsletter status:', error);
+      }
+    }
+
+    async function handleNewsletterSubscribe() {
+      const email = document.getElementById('nl-email').value.trim();
+      const statusEl = document.getElementById('nl-status');
+      const subscribeBtn = document.getElementById('nl-subscribe-btn');
+      const spamNotice = document.getElementById('spam-notice');
+      
+      if (!email || !email.includes('@')) {
+        toast('Please enter a valid email address');
+        return;
+      }
+      
+      subscribeBtn.classList.add('loading');
+      subscribeBtn.disabled = true;
+      subscribeBtn.textContent = 'Please wait...';
+      
+      try {
+        const formData = new FormData();
+        formData.append('email', email);
+        
+        const response = await fetch('/newsletter/subscribe/', {
+          method: 'POST',
+          headers: {
+            'X-CSRFToken': getCsrfToken(),
+          },
+          body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+          if (data.requires_confirmation) {
+            toast('📧 Confirmation email sent! Please check your inbox.');
+            statusEl.className = 'newsletter-status pending';
+            statusEl.textContent = '⏳ Confirm your email';
+            statusEl.style.display = 'inline-block';
+            subscribeBtn.textContent = 'Resend confirmation';
+            subscribeBtn.onclick = handleNewsletterSubscribe;
+            spamNotice.classList.add('show');
+          } else if (data.is_subscribed) {
+            toast(data.message || 'You are already subscribed!');
+            statusEl.className = 'newsletter-status subscribed';
+            statusEl.textContent = '✓ Subscribed';
+            statusEl.style.display = 'inline-block';
+            subscribeBtn.textContent = 'Unsubscribe';
+            subscribeBtn.onclick = handleNewsletterUnsubscribe;
+            spamNotice.classList.add('show');
+          }
+        } else {
+          toast(data.error || 'Error subscribing to newsletter');
+        }
+      } catch (error) {
+        toast('Network error. Please try again.');
+      } finally {
+        subscribeBtn.classList.remove('loading');
+        subscribeBtn.disabled = false;
+        if (subscribeBtn.textContent === 'Please wait...') {
+          subscribeBtn.textContent = 'Subscribe';
+        }
+      }
+    }
+
+    async function handleNewsletterUnsubscribe() {
+      const subscribeBtn = document.getElementById('nl-subscribe-btn');
+      const statusEl = document.getElementById('nl-status');
+      const spamNotice = document.getElementById('spam-notice');
+      
+      if (!confirm('Are you sure you want to unsubscribe from the newsletter?')) {
+        return;
+      }
+      
+      subscribeBtn.classList.add('loading');
+      subscribeBtn.disabled = true;
+      subscribeBtn.textContent = 'Please wait...';
+      
+      try {
+        const response = await fetch('/newsletter/unsubscribe/', {
+          method: 'POST',
+          headers: {
+            'X-CSRFToken': getCsrfToken(),
+          }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+          toast('You have been unsubscribed.');
+          statusEl.className = 'newsletter-status unsubscribed';
+          statusEl.textContent = 'Not subscribed';
+          statusEl.style.display = 'inline-block';
+          subscribeBtn.textContent = 'Subscribe';
+          subscribeBtn.onclick = handleNewsletterSubscribe;
+          spamNotice.classList.remove('show');
+        } else {
+          toast(data.error || 'Error unsubscribing');
+        }
+      } catch (error) {
+        toast('Network error. Please try again.');
+      } finally {
+        subscribeBtn.classList.remove('loading');
+        subscribeBtn.disabled = false;
+        subscribeBtn.textContent = 'Subscribe';
+      }
+    }
+
+    // Stats Functions
+    async function loadStats() {
+      const isAuthenticated = {% if user.is_authenticated %}true{% else %}false{% endif %};
+      
+      if (isAuthenticated) {
+        try {
+          const response = await fetch('/vocabulary/api/stats/');
+          const data = await response.json();
+          
+          if (response.ok) {
+            document.getElementById('stat-streak').textContent = data.streak || 0;
+            document.getElementById('stat-known').textContent = data.known || 0;
+            document.getElementById('stat-due').textContent = data.due || 0;
+            document.getElementById('stat-xp').textContent = data.xp || 0;
+          }
+        } catch (error) {
+          console.error('Error loading stats:', error);
+          // Fallback to local data
+          updateStatsFromLocal();
+        }
+      } else {
+        // Not logged in - use local storage
+        updateStatsFromLocal();
+      }
+    }
+
+    async function syncLocalData() {
+    // Check if there's local data to sync
+    const localWords = localStorage.getItem('lexicon_words');
+    const localStats = localStorage.getItem('lexicon_stats');
+    
+    if (!localWords && !localStats) {
+        console.log('No local data to sync');
+        return;
+    }
+    
+    try {
+        const words = JSON.parse(localWords) || [];
+        const stats = JSON.parse(localStats) || {};
+        
+        if (words.length === 0 && Object.keys(stats).length === 0) {
+            return;
+        }
+        
+        console.log(`Syncing ${words.length} words to database...`);
+        
+        const response = await fetch('/vocabulary/api/sync/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken(),
+            },
+            body: JSON.stringify({
+                words: words,
+                stats: stats
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            console.log(data.message);
+            // Clear local data after successful sync
+            localStorage.removeItem('lexicon_words');
+            localStorage.removeItem('lexicon_stats');
+            
+            // Show toast notification
+            toast(`✅ ${data.message}`);
+            return true;
+        } else {
+            console.error('Sync failed:', data.error);
+            toast('⚠️ Failed to sync data. Please try again.');
+            return false;
+        }
+    } catch (error) {
+        console.error('Error syncing data:', error);
+        toast('⚠️ Error syncing data. Please try again.');
+        return false;
+    }
+}
+
+    function updateStatsFromLocal() {
+      // Try to get stats from localStorage
+      const stats = JSON.parse(localStorage.getItem('lexicon_stats') || 'null');
+      if (stats) {
+        document.getElementById('stat-streak').textContent = stats.streak || 0;
+        document.getElementById('stat-known').textContent = stats.known || 0;
+        document.getElementById('stat-due').textContent = stats.due || 0;
+        document.getElementById('stat-xp').textContent = stats.xp || 0;
+      } else {
+        // No local stats - show 0
+        document.getElementById('stat-streak').textContent = '0';
+        document.getElementById('stat-known').textContent = '0';
+        document.getElementById('stat-due').textContent = '0';
+        document.getElementById('stat-xp').textContent = '0';
+      }
+    }
+
+    function updateLocalStats(wordAction) {
+      // Update local stats when user interacts with words
+      let stats = JSON.parse(localStorage.getItem('lexicon_stats') || 'null');
+      if (!stats) {
+        stats = { streak: 0, known: 0, due: 0, xp: 0 };
+      }
+      
+      if (wordAction === 'learned') {
+        stats.known += 1;
+        stats.xp += 10;
+        stats.streak = Math.min(stats.streak + 1, 365);
+        // Update due count
+        stats.due = Math.max(0, stats.due - 1);
+      } else if (wordAction === 'reviewed') {
+        stats.xp += 5;
+      } else if (wordAction === 'added') {
+        stats.due += 1;
+      }
+      
+      localStorage.setItem('lexicon_stats', JSON.stringify(stats));
+      updateStatsFromLocal();
+    }
+
+    // Word database and functions
     const wordsDB = {
       ephemeral: { word:'ephemeral', phonetic:'/ɪˈfem.ər.əl/', pos:'adjective · C1', def:'Lasting for a very short time; fleeting or transitory.',
         examples:['Fame in the digital age can be <em>ephemeral</em> — here today, forgotten tomorrow.','The beauty of cherry blossoms is <em>ephemeral</em>, lasting only a few days each spring.','He preferred <em>ephemeral</em> pleasures to long-term commitments.'],
@@ -920,8 +1235,26 @@
     };
     
     const reviewQueue = ['ubiquitous','paradigm','resilient','nuanced','pragmatic','meticulous','ephemeral','candid'];
-    let reviewIndex = 0, answerRevealed = false, currentLearnWord = 'ephemeral';
-    let userWords = Object.keys(wordsDB).map(k => ({ ...wordsDB[k], known: wordsDB[k].mastery >= 4 }));
+    let reviewIndex = 0, answerRevealed = false;
+
+    // Initialize userWords from localStorage or defaults
+    function initUserWords() {
+      const saved = localStorage.getItem('lexicon_words');
+      if (saved) {
+        try {
+          userWords = JSON.parse(saved);
+          return;
+        } catch (e) {
+          // Fall through to defaults
+        }
+      }
+      userWords = Object.keys(wordsDB).map(k => ({ ...wordsDB[k], known: wordsDB[k].mastery >= 4 }));
+      saveUserWords();
+    }
+
+    function saveUserWords() {
+      localStorage.setItem('lexicon_words', JSON.stringify(userWords));
+    }
 
     // Load Word of the Day from the API
     async function loadWordOfDay() {
@@ -937,10 +1270,8 @@
           document.getElementById('wotd-pos').textContent = data.pos || '';
           document.getElementById('wotd-category').textContent = data.category || '';
           
-          // Update currentLearnWord to match WOTD
           currentLearnWord = data.word;
           
-          // Add to wordsDB if not exists
           if (!wordsDB[data.word]) {
             wordsDB[data.word] = {
               word: data.word,
@@ -957,11 +1288,11 @@
               ...wordsDB[data.word], 
               known: false 
             });
+            saveUserWords();
           }
         }
       } catch (error) {
         console.error('Error loading word of the day:', error);
-        // Fallback - keep the default word
       }
     }
 
@@ -978,10 +1309,10 @@
       const html = document.documentElement;
       const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
       html.setAttribute('data-theme', next === 'dark' ? 'dark' : '');
-      localStorage.setItem('lexora-theme', next);
+      localStorage.setItem('lexicon-theme', next);
     }
     
-    if (localStorage.getItem('lexora-theme') === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+    if (localStorage.getItem('lexicon-theme') === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
 
     function speak(text) {
       if (!window.speechSynthesis) { toast('Speech synthesis not available'); return; }
@@ -1042,15 +1373,31 @@
       const text = document.getElementById('user-sentence').value.trim();
       if (!text) { toast('Write a sentence first — it really helps retention'); checkSentence(); return; }
       if (!text.toLowerCase().includes(currentLearnWord.toLowerCase())) { toast('Try to include the word "'+currentLearnWord+'"'); checkSentence(); return; }
-      checkSentence(); toast('Sentence saved. Nice work — now reviewing…');
+      checkSentence(); 
+      toast('Sentence saved. Nice work — now reviewing…');
+      
+      const isAuthenticated = {% if user.is_authenticated %}true{% else %}false{% endif %};
+      if (!isAuthenticated) {
+        updateLocalStats('learned');
+      }
       setTimeout(() => showView('review'), 700);
     }
     
     function markKnown(word) {
       const item = userWords.find(w => w.word === word);
-      if (item) { item.known = true; item.mastery = 4; }
-      toast('"'+word+'" marked as known');
-      document.getElementById('stat-known').textContent = userWords.filter(w => w.known).length + 140;
+      if (item) { 
+        item.known = true; 
+        item.mastery = 4; 
+        saveUserWords(); 
+      }
+      toast('"' + word + '" marked as known');
+      
+      const isAuthenticated = {% if user.is_authenticated %}true{% else %}false{% endif %};
+      if (!isAuthenticated) {
+        updateLocalStats('learned');
+      }
+      // If logged in, reload stats from server
+      loadStats();
     }
     
     function resetReview() { reviewIndex = 0; answerRevealed = false; updateReviewCard(); }
@@ -1077,10 +1424,21 @@
     
     function rate(level) {
       toast(level===1?'Will show again soon':level===4?'Great — spaced further out':'Scheduled for later');
+      
+      const isAuthenticated = {% if user.is_authenticated %}true{% else %}false{% endif %};
+      if (!isAuthenticated) {
+        updateLocalStats('reviewed');
+      }
+      
       reviewIndex++;
       if (reviewIndex >= reviewQueue.length) {
         document.getElementById('review-progress-fill').style.width = '100%';
-        setTimeout(() => { toast('Session complete! +85 XP'); document.getElementById('stat-xp').textContent = '1,365'; showView('home'); }, 500);
+        setTimeout(() => { 
+          toast('Session complete! +85 XP'); 
+          const currentXp = parseInt(document.getElementById('stat-xp').textContent) || 0;
+          document.getElementById('stat-xp').textContent = currentXp + 85; 
+          showView('home'); 
+        }, 500);
         return;
       }
       updateReviewCard();
@@ -1109,16 +1467,30 @@
       const word = document.getElementById('capture-word').value.trim();
       if (!word) { toast('Enter a word or phrase'); return; }
       userWords.unshift({ word, phonetic:'', pos:'—', def:'Recently added — definition will be filled in', examples:[], collocations:[], synonyms:[], antonyms:[], mastery:0, known:false });
-      document.getElementById('capture-word').value = ''; document.getElementById('capture-context').value = '';
-      toast('"'+word+'" added to your list');
-      document.getElementById('stat-due').textContent = parseInt(document.getElementById('stat-due').textContent,10)+1;
+      saveUserWords();
+      document.getElementById('capture-word').value = '';
+      document.getElementById('capture-context').value = '';
+      toast('"' + word + '" added to your list');
+      
+      const isAuthenticated = {% if user.is_authenticated %}true{% else %}false{% endif %};
+      if (!isAuthenticated) {
+        updateLocalStats('added');
+      }
+      loadStats();
     }
     
     function addToList(word) {
       if (userWords.some(w => w.word === word)) { toast('Already in your list'); return; }
       const data = wordsDB[word] || { word, phonetic:'', pos:'—', def:'Saved from scene / WOTD', examples:[], collocations:[], synonyms:[], antonyms:[], mastery:0 };
       userWords.unshift({ ...data, known:false });
-      toast('"'+word+'" saved');
+      saveUserWords();
+      toast('"' + word + '" saved');
+      
+      const isAuthenticated = {% if user.is_authenticated %}true{% else %}false{% endif %};
+      if (!isAuthenticated) {
+        updateLocalStats('added');
+      }
+      loadStats();
     }
     
     function runScene() {
@@ -1130,13 +1502,6 @@
     
     function startDemo() { learnWord('ephemeral'); toast('Demo started — no account needed'); }
     
-    function subscribeNewsletter() {
-      const email = document.getElementById('nl-email').value.trim();
-      if (!email || !email.includes('@')) { toast('Enter a valid email (design only)'); return; }
-      toast('Subscribed! One advanced word each morning.');
-      document.getElementById('nl-email').value = '';
-    }
-    
     function toast(msg) {
       const el = document.getElementById('toast');
       el.textContent = msg; el.classList.add('show');
@@ -1144,13 +1509,18 @@
       window._toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
     }
     
-    // Load word of the day when page loads
+    // Initialize everything
+    initUserWords();
+    
     document.addEventListener('DOMContentLoaded', function() {
       loadWordOfDay();
+      loadNewsletterStatus();
+      loadStats();
     });
     
-    // Also call it immediately
     loadWordOfDay();
+    loadNewsletterStatus();
+    loadStats();
     renderWordList();
   </script>
 </body>

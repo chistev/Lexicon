@@ -1,7 +1,11 @@
 from django.shortcuts import render
 from django.http import JsonResponse
 from django.utils import timezone
-from .models import Word
+from django.contrib.auth.decorators import login_required
+from django.views.decorators.csrf import csrf_exempt
+from django.db.models import Count, Q
+from .models import Word, UserWord
+import json
 
 def get_word_of_day(request):
     """Get the current word of the day"""
@@ -34,3 +38,147 @@ def get_word_of_day(request):
         'antonyms': wotd.antonyms,
         'mastery': wotd.mastery,
     })
+
+@login_required
+def get_user_stats(request):
+    """Get stats for the logged-in user"""
+    user = request.user
+    
+    # Total words the user has interacted with
+    total_words = UserWord.objects.filter(user=user).count()
+    
+    # Words the user has mastered (known)
+    mastered_words = UserWord.objects.filter(user=user, mastered=True).count()
+    
+    # Words due for review (simplified - you can make this more complex)
+    # For now, just count words that are not mastered
+    due_for_review = UserWord.objects.filter(user=user, mastered=False).count()
+    
+    # Calculate XP (simplified - 10 XP per mastered word, 5 per learning word)
+    xp = (mastered_words * 10) + ((total_words - mastered_words) * 5)
+    
+    # Calculate streak (simplified - based on consecutive days with activity)
+    from django.utils import timezone
+    from datetime import timedelta
+    
+    # Get today's date
+    today = timezone.now().date()
+    
+    # Check if user has activity today
+    today_activity = UserWord.objects.filter(
+        user=user,
+        reviewed_at__date=today
+    ).exists()
+    
+    # Check if user has activity yesterday
+    yesterday = today - timedelta(days=1)
+    yesterday_activity = UserWord.objects.filter(
+        user=user,
+        reviewed_at__date=yesterday
+    ).exists()
+    
+    # Simple streak calculation
+    streak = 0
+    if today_activity:
+        streak = 1
+        # Count back days
+        check_date = today - timedelta(days=1)
+        while UserWord.objects.filter(
+            user=user,
+            reviewed_at__date=check_date
+        ).exists():
+            streak += 1
+            check_date -= timedelta(days=1)
+    elif yesterday_activity:
+        streak = 1
+        check_date = yesterday - timedelta(days=1)
+        while UserWord.objects.filter(
+            user=user,
+            reviewed_at__date=check_date
+        ).exists():
+            streak += 1
+            check_date -= timedelta(days=1)
+    
+    return JsonResponse({
+        'streak': streak,
+        'known': mastered_words,
+        'total': total_words,
+        'due': due_for_review,
+        'xp': xp,
+    })
+
+@login_required
+@csrf_exempt
+def sync_local_words(request):
+    """Sync local words from localStorage to the database"""
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    try:
+        data = json.loads(request.body)
+        local_words = data.get('words', [])
+        local_stats = data.get('stats', {})
+        
+        if not local_words:
+            return JsonResponse({'success': True, 'message': 'No words to sync', 'synced': 0})
+        
+        user = request.user
+        synced_count = 0
+        
+        for word_data in local_words:
+            word_text = word_data.get('word', '').strip().lower()
+            if not word_text:
+                continue
+            
+            # Get or create the word in the database
+            word, created = Word.objects.get_or_create(
+                word=word_text,
+                defaults={
+                    'phonetic': word_data.get('phonetic', ''),
+                    'pos': word_data.get('pos', ''),
+                    'definition': word_data.get('def', 'Recently added — definition will be filled in'),
+                    'examples': word_data.get('examples', []),
+                    'collocations': word_data.get('collocations', []),
+                    'synonyms': word_data.get('synonyms', []),
+                    'antonyms': word_data.get('antonyms', []),
+                    'mastery': word_data.get('mastery', 1),
+                }
+            )
+            
+            # Check if user already has this word
+            user_word, created = UserWord.objects.get_or_create(
+                user=user,
+                word=word,
+                defaults={
+                    'mastered': word_data.get('known', False),
+                    'mastery_level': word_data.get('mastery', 0),
+                }
+            )
+            
+            # Update if word already exists and local data is newer
+            if not created:
+                # Only update if local has better mastery
+                if word_data.get('mastery', 0) > user_word.mastery_level:
+                    user_word.mastery_level = word_data.get('mastery', 0)
+                    user_word.mastered = word_data.get('known', False)
+                    user_word.save()
+                    synced_count += 1
+            else:
+                synced_count += 1
+        
+        # Sync stats if provided
+        if local_stats:
+            # Update user's stats - we'll use the database to calculate, but we can store
+            # additional metadata if needed
+            pass
+        
+        return JsonResponse({
+            'success': True,
+            'message': f'Successfully synced {synced_count} words',
+            'synced': synced_count
+        })
+        
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON data'}, status=400)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)

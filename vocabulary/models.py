@@ -1,4 +1,5 @@
 from django.db import models
+from django.contrib.auth.models import User
 
 class Word(models.Model):
     word = models.CharField(max_length=100, unique=True)
@@ -21,3 +22,20 @@ class Word(models.Model):
 
     class Meta:
         ordering = ['word']
+
+
+class UserWord(models.Model):
+    """Track which words a user has learned"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='learned_words')
+    word = models.ForeignKey(Word, on_delete=models.CASCADE, related_name='learned_by')
+    mastered = models.BooleanField(default=False)  # True = word is known/mastered
+    mastery_level = models.IntegerField(default=0)  # 0-4
+    reviewed_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        unique_together = ['user', 'word']
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.word.word} ({'Mastered' if self.mastered else 'Learning'})"
