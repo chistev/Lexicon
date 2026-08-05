@@ -6,4 +6,5 @@ urlpatterns = [
     path('api/stats/', views.get_user_stats, name='user_stats'),
     path('api/sync/', views.sync_local_words, name='sync_local_words'),
     path('api/word/<str:word_text>/', views.get_word_data, name='word_data'),
+    path('api/mark-known/', views.mark_word_known, name='mark_word_known'),
 ]

@@ -202,3 +202,53 @@ def get_word_data(request, word_text):
         })
     except Word.DoesNotExist:
         return JsonResponse({'error': 'Word not found'}, status=404)
+    
+
+@login_required
+@csrf_exempt
+def mark_word_known(request):
+    """Mark a word as known/mastered for the user"""
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    try:
+        data = json.loads(request.body)
+        word_text = data.get('word', '').strip().lower()
+        
+        if not word_text:
+            return JsonResponse({'error': 'Word is required'}, status=400)
+        
+        # Get or create the word
+        word, created = Word.objects.get_or_create(
+            word=word_text,
+            defaults={
+                'definition': 'Recently added — definition will be filled in'
+            }
+        )
+        
+        # Get or create the user word
+        user_word, created = UserWord.objects.get_or_create(
+            user=request.user,
+            word=word,
+            defaults={
+                'mastered': True,
+                'mastery_level': 4,
+            }
+        )
+        
+        # If not created, update it
+        if not created:
+            user_word.mastered = True
+            user_word.mastery_level = 4
+            user_word.save()
+        
+        return JsonResponse({
+            'success': True,
+            'message': f'"{word_text}" marked as known',
+            'word': word_text
+        })
+        
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)

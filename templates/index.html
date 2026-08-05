@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap" rel="stylesheet" />
   <style>
+    /* All your existing CSS remains exactly the same */
     :root {
       --bg: #f8f7f4;
       --bg-elevated: #ffffff;
@@ -314,6 +315,7 @@
     .write-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
     .feedback { display: none; border-radius: var(--radius-sm); padding: 0.85rem 1rem; font-size: 0.9rem; line-height: 1.45; margin-bottom: 0.5rem; }
     .feedback.visible { display: block; }
+    .feedback.coming-soon { background: color-mix(in srgb, var(--warning) 12%, var(--bg-elevated)); border-left: 4px solid var(--warning); color: var(--text); }
     .feedback.good { background: color-mix(in srgb, var(--accent) 12%, var(--bg-elevated)); border-left: 4px solid var(--accent); color: var(--text); }
     .feedback.improve { background: color-mix(in srgb, var(--warning) 12%, var(--bg-elevated)); border-left: 4px solid var(--warning); color: var(--text); }
     .feedback .fb-title { font-weight: 600; margin-bottom: 0.25rem; }
@@ -669,6 +671,7 @@
     let userWords = [];
     let currentLearnWord = 'ephemeral';
     let wordCache = {};
+    let isWordKnown = false;
 
     function setLoading(isLoading) {
       const primaryBtn = document.getElementById('auth-primary-btn');
@@ -1217,6 +1220,7 @@
       const collocationsEl = document.getElementById('learn-collocations');
       const synonymsEl = document.getElementById('learn-synonyms');
       const antonymsEl = document.getElementById('learn-antonyms');
+      const textarea = document.getElementById('user-sentence');
       
       // Show loading state
       wordEl.textContent = 'Loading...';
@@ -1227,6 +1231,18 @@
       collocationsEl.innerHTML = '';
       synonymsEl.innerHTML = '';
       antonymsEl.innerHTML = '';
+      
+      // Check if word is already known
+      const isAuthenticated = {% if user.is_authenticated %}true{% else %}false{% endif %};
+      if (isAuthenticated) {
+        try {
+          const statsResponse = await fetch('/vocabulary/api/stats/');
+          const statsData = await statsResponse.json();
+          // We don't have a direct API for known words yet, so we'll check from userWords
+        } catch (e) {
+          // Ignore
+        }
+      }
       
       // Fetch word data from server
       const data = await loadWordData(key);
@@ -1257,6 +1273,13 @@
         antonymsEl.innerHTML = (data.antonyms || []).map(a => 
           `<span class="chip">${a}</span>`
         ).join('');
+        
+        // Set dynamic placeholder text with the first example
+        if (data.examples && data.examples.length > 0) {
+          textarea.placeholder = `e.g. ${data.examples[0]}`;
+        } else {
+          textarea.placeholder = `e.g. The ${data.word} moment was unforgettable...`;
+        }
         
         document.getElementById('user-sentence').value = '';
         const fb = document.getElementById('sentence-feedback');
@@ -1307,6 +1330,10 @@
       if (saved) {
         try {
           userWords = JSON.parse(saved);
+          // Remove known words from learning queue
+          const knownWords = userWords.filter(w => w.known).map(w => w.word);
+          // Filter reviewQueue to exclude known words
+          // We'll handle this in the review page
           return;
         } catch (e) {
           // Fall through to defaults
@@ -1371,43 +1398,76 @@
     }
     
     function nextLearnWord() {
-      const keys = Object.keys(wordsDB);
-      const next = keys[(keys.indexOf(currentLearnWord)+1) % keys.length];
-      loadLearnWord(next); 
-      toast('Loaded next word: ' + next);
+      // Get the next word that is NOT known
+      let nextWord = null;
+      const allWords = Object.keys(wordsDB);
+      const startIndex = allWords.indexOf(currentLearnWord);
+      
+      for (let i = 1; i <= allWords.length; i++) {
+        const idx = (startIndex + i) % allWords.length;
+        const word = allWords[idx];
+        const userWord = userWords.find(w => w.word === word);
+        if (!userWord || !userWord.known) {
+          nextWord = word;
+          break;
+        }
+      }
+      
+      if (nextWord) {
+        loadLearnWord(nextWord);
+        toast('Loaded next word: ' + nextWord);
+      } else {
+        toast('🎉 You\'ve learned all words!');
+        showView('home');
+      }
     }
     
+    // "Check usage" - Coming soon feature
     function checkSentence() {
-      const text = document.getElementById('user-sentence').value.trim();
       const fb = document.getElementById('sentence-feedback');
-      const target = currentLearnWord.toLowerCase();
-      if (!text) {
-        fb.className = 'feedback improve visible';
-        fb.innerHTML = '<div class="fb-title">Write a sentence first</div><div class="fb-tip">Include the word "'+currentLearnWord+'" so we can check how you used it.</div>';
-        return;
-      }
-      const lower = text.toLowerCase();
-      if (!lower.includes(target)) {
-        fb.className = 'feedback improve visible';
-        fb.innerHTML = '<div class="fb-title">The target word is missing</div><div class="fb-tip">Your sentence doesn\'t contain "'+currentLearnWord+'". Add it so we can give usage feedback.</div>';
-        return;
-      }
-      const looksNatural = text.length > 20 && (lower.includes(' is '+target) || lower.includes(' are '+target) || lower.includes(' was '+target) || lower.includes(' were '+target) || lower.includes(' become '+target) || lower.includes(' became '+target) || lower.includes(target+' ') || lower.includes(' '+target));
-      if (looksNatural) {
-        fb.className = 'feedback good visible';
-        fb.innerHTML = '<div class="fb-title">✓ Good usage</div><div class="fb-tip">"'+currentLearnWord+'" fits naturally here. Building your own sentence like this is one of the best ways to make the word stick.</div>';
-      } else {
-        fb.className = 'feedback improve visible';
-        fb.innerHTML = '<div class="fb-title">Almost — usage could be clearer</div><div class="fb-tip">Try placing "'+currentLearnWord+'" in a more natural position, e.g. "The moment was '+currentLearnWord+'."</div>';
-      }
+      fb.className = 'feedback coming-soon visible';
+      fb.innerHTML = `
+        <div class="fb-title">🚀 Coming soon!</div>
+        <div class="fb-tip">AI-powered sentence checking is on the way. For now, just save your sentence and continue to review. Your sentences will be checked when the feature launches!</div>
+      `;
     }
     
     function submitSentence() {
       const text = document.getElementById('user-sentence').value.trim();
-      if (!text) { toast('Write a sentence first — it really helps retention'); checkSentence(); return; }
-      if (!text.toLowerCase().includes(currentLearnWord.toLowerCase())) { toast('Try to include the word "'+currentLearnWord+'"'); checkSentence(); return; }
-      checkSentence(); 
-      toast('Sentence saved. Nice work — now reviewing…');
+      const fb = document.getElementById('sentence-feedback');
+      
+      if (!text) { 
+        toast('Write a sentence first — it really helps retention'); 
+        fb.className = 'feedback improve visible';
+        fb.innerHTML = '<div class="fb-title">Write a sentence first</div><div class="fb-tip">Your sentence will be saved for review.</div>';
+        return;
+      }
+      
+      if (!text.toLowerCase().includes(currentLearnWord.toLowerCase())) { 
+        toast('Try to include the word "' + currentLearnWord + '"'); 
+        fb.className = 'feedback improve visible';
+        fb.innerHTML = `<div class="fb-title">Include the word "${currentLearnWord}"</div><div class="fb-tip">Try writing a sentence that uses "${currentLearnWord}". This helps you remember it better.</div>`;
+        return;
+      }
+      
+      // Save the sentence (we'll store it in localStorage for now)
+      const sentences = JSON.parse(localStorage.getItem('lexicon_sentences') || '{}');
+      if (!sentences[currentLearnWord]) {
+        sentences[currentLearnWord] = [];
+      }
+      sentences[currentLearnWord].push({
+        text: text,
+        date: new Date().toISOString()
+      });
+      localStorage.setItem('lexicon_sentences', JSON.stringify(sentences));
+      
+      fb.className = 'feedback good visible';
+      fb.innerHTML = `
+        <div class="fb-title">✓ Sentence saved!</div>
+        <div class="fb-tip">Great job! Your sentence has been saved. When AI checking launches, we'll analyze your sentences and provide feedback.</div>
+      `;
+      
+      toast('Sentence saved! Nice work — now reviewing…');
       
       const isAuthenticated = {% if user.is_authenticated %}true{% else %}false{% endif %};
       if (!isAuthenticated) {
@@ -1429,22 +1489,50 @@
       if (!isAuthenticated) {
         updateLocalStats('learned');
       }
+      
+      // Go to next word
+      nextLearnWord();
       loadStats();
     }
     
     function resetReview() { reviewIndex = 0; answerRevealed = false; updateReviewCard(); }
     
     function updateReviewCard() {
-      const w = wordsDB[reviewQueue[reviewIndex]];
-      document.getElementById('review-word').textContent = w.word;
-      document.getElementById('review-def').textContent = w.def;
-      document.getElementById('review-ex').textContent = '"'+w.examples[0].replace(/<\/?em>/g,'')+'"';
-      document.getElementById('review-answer').classList.remove('visible');
-      document.getElementById('reveal-btn').classList.remove('hidden');
-      document.getElementById('rating-row').classList.add('hidden');
-      document.getElementById('review-count').textContent = (reviewIndex+1)+' of '+reviewQueue.length;
-      document.getElementById('review-progress-fill').style.width = (reviewIndex/reviewQueue.length*100)+'%';
-      answerRevealed = false;
+      // Filter out known words from review queue
+      const availableWords = reviewQueue.filter(word => {
+        const userWord = userWords.find(w => w.word === word);
+        return !userWord || !userWord.known;
+      });
+      
+      // If no words to review, show message
+      if (availableWords.length === 0) {
+        document.getElementById('review-word').textContent = '🎉 All done!';
+        document.getElementById('review-def').textContent = 'You\'ve mastered all words in your review queue.';
+        document.getElementById('review-ex').textContent = 'Great job! Keep learning new words.';
+        document.getElementById('reveal-btn').classList.add('hidden');
+        document.getElementById('rating-row').classList.add('hidden');
+        document.getElementById('review-count').textContent = '0 of 0';
+        document.getElementById('review-progress-fill').style.width = '100%';
+        return;
+      }
+      
+      // If current index is out of bounds, reset
+      if (reviewIndex >= availableWords.length) {
+        reviewIndex = 0;
+      }
+      
+      const w = wordsDB[availableWords[reviewIndex]];
+      if (w) {
+        document.getElementById('review-word').textContent = w.word;
+        document.getElementById('review-def').textContent = w.def;
+        document.getElementById('review-ex').textContent = '"'+w.examples[0].replace(/<\/?em>/g,'')+'"';
+        document.getElementById('review-answer').classList.remove('visible');
+        document.getElementById('reveal-btn').classList.remove('hidden');
+        document.getElementById('rating-row').classList.add('hidden');
+        document.getElementById('review-count').textContent = (reviewIndex+1)+' of '+availableWords.length;
+        document.getElementById('review-progress-fill').style.width = (reviewIndex/availableWords.length*100)+'%';
+        answerRevealed = false;
+      }
     }
     
     function revealAnswer() {
@@ -1462,8 +1550,14 @@
         updateLocalStats('reviewed');
       }
       
+      // Filter out known words
+      const availableWords = reviewQueue.filter(word => {
+        const userWord = userWords.find(w => w.word === word);
+        return !userWord || !userWord.known;
+      });
+      
       reviewIndex++;
-      if (reviewIndex >= reviewQueue.length) {
+      if (reviewIndex >= availableWords.length) {
         document.getElementById('review-progress-fill').style.width = '100%';
         setTimeout(() => { 
           toast('Session complete! +85 XP'); 
