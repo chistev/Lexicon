@@ -182,3 +182,23 @@ def sync_local_words(request):
         return JsonResponse({'error': 'Invalid JSON data'}, status=400)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
+
+def get_word_data(request, word_text):
+    """Get detailed data for a specific word"""
+    try:
+        word = Word.objects.get(word=word_text.lower())
+        return JsonResponse({
+            'word': word.word,
+            'phonetic': word.phonetic,
+            'pos': word.pos,
+            'definition': word.definition,
+            'level': word.level,
+            'category': word.category,
+            'examples': word.examples,
+            'collocations': word.collocations,
+            'synonyms': word.synonyms,
+            'antonyms': word.antonyms,
+            'mastery': word.mastery,
+        })
+    except Word.DoesNotExist:
+        return JsonResponse({'error': 'Word not found'}, status=404)
