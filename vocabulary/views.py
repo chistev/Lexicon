@@ -252,3 +252,89 @@ def mark_word_known(request):
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
+    
+@login_required
+def get_review_words(request):
+    """Get words that the user needs to review (words they don't know)"""
+    user = request.user
+    
+    # Get words the user has mastered (known)
+    mastered_words = UserWord.objects.filter(user=user, mastered=True).values_list('word__word', flat=True)
+    
+    # Get words the user is learning (not mastered yet)
+    learning_words = UserWord.objects.filter(user=user, mastered=False).values_list('word__word', flat=True)
+    
+    # Get words from the Word model that the user hasn't seen yet
+    # Exclude words the user has already interacted with
+    user_word_ids = UserWord.objects.filter(user=user).values_list('word_id', flat=True)
+    unseen_words = Word.objects.exclude(id__in=user_word_ids).values_list('word', flat=True)[:10]
+    
+    # Combine: words the user is learning + words they haven't seen
+    review_words = list(learning_words) + list(unseen_words)
+    
+    return JsonResponse({
+        'words': review_words,
+        'total': len(review_words),
+        'mastered_count': mastered_words.count()
+    })
+
+@login_required
+def get_user_words(request):
+    """Get all words the user has saved"""
+    user = request.user
+    user_words = UserWord.objects.filter(user=user).select_related('word')
+    
+    words_data = []
+    for uw in user_words:
+        words_data.append({
+            'word': uw.word.word,
+            'definition': uw.word.definition,
+            'mastered': uw.mastered,
+            'mastery_level': uw.mastery_level
+        })
+    
+    return JsonResponse({'words': words_data})
+
+@login_required
+@csrf_exempt
+def save_word(request):
+    """Save a word for the user"""
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    try:
+        data = json.loads(request.body)
+        word_text = data.get('word', '').strip().lower()
+        context = data.get('context', '')
+        
+        if not word_text:
+            return JsonResponse({'error': 'Word is required'}, status=400)
+        
+        # Get or create the word
+        word, created = Word.objects.get_or_create(
+            word=word_text,
+            defaults={
+                'definition': context or 'Recently added — definition will be filled in'
+            }
+        )
+        
+        # Create user word if it doesn't exist
+        user_word, created = UserWord.objects.get_or_create(
+            user=request.user,
+            word=word,
+            defaults={
+                'mastered': False,
+                'mastery_level': 0
+            }
+        )
+        
+        return JsonResponse({
+            'success': True,
+            'message': f'Word "{word_text}" saved',
+            'created': created
+        })
+        
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
