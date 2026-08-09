@@ -562,9 +562,10 @@
     <!-- VIEW: WORDS -->
     <section id="view-words" class="view">
       <div class="words-toolbar">
-        <input type="search" class="search-input" placeholder="Search your words..." id="word-search" oninput="filterWords()" />
-        <button class="btn btn-ghost btn-sm" onclick="filterKnown(false)">All</button>
-        <button class="btn btn-ghost btn-sm" onclick="filterKnown(true)">Learning</button>
+        <input type="search" class="search-input" placeholder="Search your words..." id="word-search" oninput="handleSearch()" />
+        <button class="btn btn-ghost btn-sm active" id="filter-all" onclick="setFilter('all')">All</button>
+        <button class="btn btn-ghost btn-sm" id="filter-learning" onclick="setFilter('learning')">Learning</button>
+        <button class="btn btn-ghost btn-sm" id="filter-mastered" onclick="setFilter('mastered')">Mastered</button>
         <button class="btn btn-ghost btn-sm" onclick="toast('Export as CSV / Anki coming soon')">Export</button>
       </div>
       <div class="word-list" id="word-list"></div>
@@ -637,7 +638,7 @@
     </section>
   </main>
 
-  <footer class="footer">Lexicon prototype · Demo data only · Password policy: any characters, max 128 · No forced signup</footer>
+  <footer class="footer">Lexicon prototype · Password policy: any characters, max 128 · No forced signup</footer>
 
   <div class="modal-overlay" id="auth-modal">
     <div class="modal">
@@ -674,42 +675,13 @@
       return document.querySelector('meta[name="csrf-token"]').getAttribute('content');
     }
 
-    // Check if user is authenticated (set by Django template)
     const IS_AUTHENTICATED = {% if user.is_authenticated %}true{% else %}false{% endif %};
 
     let authMode = 'signup';
-    let userWords = [];
-    let currentLearnWord = 'ephemeral';
+    let currentLearnWord = '';
     let wordCache = {};
-
-    // Word database (fallback for anonymous users and when API fails)
-    const wordsDB = {
-      ephemeral: { word:'ephemeral', phonetic:'/ɪˈfem.ər.əl/', pos:'adjective · C1', def:'Lasting for a very short time; fleeting or transitory.',
-        examples:['Fame in the digital age can be <em>ephemeral</em> — here today, forgotten tomorrow.','The beauty of cherry blossoms is <em>ephemeral</em>, lasting only a few days each spring.','He preferred <em>ephemeral</em> pleasures to long-term commitments.'],
-        collocations:['ephemeral beauty','ephemeral nature','ephemeral moment','ephemeral fame'],
-        synonyms:['fleeting','transitory','momentary','short-lived'], antonyms:['permanent','lasting','enduring','eternal'], mastery:1 },
-      ubiquitous: { word:'ubiquitous', phonetic:'/juːˈbɪk.wɪ.təs/', pos:'adjective · C1', def:'Present, appearing, or found everywhere.',
-        examples:['Smartphones have become <em>ubiquitous</em> in modern life.','The company aims to make its brand <em>ubiquitous</em> across the region.'],
-        collocations:['ubiquitous presence','become ubiquitous'], synonyms:['omnipresent','pervasive','universal','ever-present'], antonyms:['rare','scarce','uncommon','limited'], mastery:2 },
-      paradigm: { word:'paradigm', phonetic:'/ˈpær.ə.daɪm/', pos:'noun · C1', def:'A typical example or pattern of something; a model of how things work.',
-        examples:['The discovery shifted the scientific <em>paradigm</em>.','She offered a new <em>paradigm</em> for understanding motivation.'],
-        collocations:['paradigm shift','dominant paradigm'], synonyms:['model','framework','pattern','archetype'], antonyms:['anomaly','exception'], mastery:3 },
-      resilient: { word:'resilient', phonetic:'/rɪˈzɪl.i.ənt/', pos:'adjective · B2', def:'Able to recover quickly from difficulties; tough and adaptable.',
-        examples:['Children are often remarkably <em>resilient</em>.','A <em>resilient</em> economy can withstand external shocks.'],
-        collocations:['resilient community','emotionally resilient'], synonyms:['tough','adaptable','durable','buoyant'], antonyms:['fragile','brittle','vulnerable'], mastery:2 },
-      nuanced: { word:'nuanced', phonetic:'/ˈnjuː.ɑːnst/', pos:'adjective · C1', def:'Characterized by subtle differences or distinctions; not black-and-white.',
-        examples:['Her analysis of the issue was far more <em>nuanced</em> than the headlines suggested.','He gave a <em>nuanced</em> performance that avoided cliché.'],
-        collocations:['nuanced understanding','nuanced approach'], synonyms:['subtle','refined','sophisticated'], antonyms:['blunt','simplistic','crude'], mastery:1 },
-      pragmatic: { word:'pragmatic', phonetic:'/præɡˈmæt.ɪk/', pos:'adjective · B2', def:'Dealing with things sensibly and realistically; focused on practical results.',
-        examples:['We need a <em>pragmatic</em> solution, not an idealistic one.','Her style of leadership is calm and <em>pragmatic</em>.'],
-        collocations:['pragmatic approach','pragmatic reasons'], synonyms:['practical','realistic','sensible'], antonyms:['idealistic','impractical','theoretical'], mastery:3 },
-      meticulous: { word:'meticulous', phonetic:'/məˈtɪk.jə.ləs/', pos:'adjective · C1', def:'Showing great attention to detail; very careful and precise.',
-        examples:['He kept <em>meticulous</em> records of every experiment.','The restoration was carried out with <em>meticulous</em> care.'],
-        collocations:['meticulous attention','meticulous planning'], synonyms:['careful','precise','thorough','fastidious'], antonyms:['careless','sloppy','haphazard'], mastery:1 },
-      candid: { word:'candid', phonetic:'/ˈkæn.dɪd/', pos:'adjective · B2', def:'Truthful and straightforward; frank.',
-        examples:['She gave a <em>candid</em> assessment of the project\'s weaknesses.','I appreciate your <em>candid</em> feedback.'],
-        collocations:['candid conversation','candid opinion'], synonyms:['frank','honest','straightforward','blunt'], antonyms:['evasive','guarded','diplomatic'], mastery:4 }
-    };
+    let currentFilter = 'all';
+    let allUserWords = [];
 
     // Review state
     let reviewQueue = [];
@@ -718,7 +690,7 @@
     let isReviewLoading = false;
 
     // ============================================================
-    // AUTH FUNCTIONS - WITH SYNC
+    // AUTH FUNCTIONS
     // ============================================================
     function setLoading(isLoading) {
       const primaryBtn = document.getElementById('auth-primary-btn');
@@ -850,7 +822,6 @@
       setLoading(true);
       
       try {
-        // First, sync anonymous data if it exists
         await syncAnonymousData();
         
         const formData = new FormData();
@@ -874,7 +845,6 @@
           successEl.classList.add('show');
           errorEl.classList.remove('show');
           
-          // Clear anonymous data after successful sync
           localStorage.removeItem('lexicon_words');
           localStorage.removeItem('lexicon_stats');
           
@@ -911,7 +881,6 @@
       setLoading(true);
       
       try {
-        // First, sync anonymous data if it exists
         await syncAnonymousData();
         
         const formData = new FormData();
@@ -935,7 +904,6 @@
           successEl.classList.add('show');
           errorEl.classList.remove('show');
           
-          // Clear anonymous data after successful sync
           localStorage.removeItem('lexicon_words');
           localStorage.removeItem('lexicon_stats');
           
@@ -955,12 +923,10 @@
     }
 
     async function syncAnonymousData() {
-      // Check if there's anonymous data to sync
       const localWords = localStorage.getItem('lexicon_words');
       const localStats = localStorage.getItem('lexicon_stats');
       
       if (!localWords && !localStats) {
-        console.log('No anonymous data to sync');
         return;
       }
       
@@ -971,8 +937,6 @@
         if (words.length === 0 && Object.keys(stats).length === 0) {
           return;
         }
-        
-        console.log(`Syncing ${words.length} words from anonymous session...`);
         
         const response = await fetch('/vocabulary/api/sync/', {
           method: 'POST',
@@ -1011,7 +975,6 @@
         });
         
         if (response.ok) {
-          // Clear localStorage when signing out
           localStorage.removeItem('lexicon_words');
           localStorage.removeItem('lexicon_stats');
           window.location.reload();
@@ -1222,7 +1185,6 @@
     }
 
     function updateLocalStats(wordAction) {
-      // Only update local stats for anonymous users
       if (IS_AUTHENTICATED) return;
       
       let stats = JSON.parse(localStorage.getItem('lexicon_stats') || 'null');
@@ -1242,7 +1204,7 @@
       }
       
       localStorage.setItem('lexicon_stats', JSON.stringify(stats));
-      updateStatsFromLocal();
+      loadStats();
     }
 
     // ============================================================
@@ -1261,17 +1223,11 @@
           wordCache[word] = data;
           return data;
         } else {
-          if (wordsDB[word]) {
-            return wordsDB[word];
-          }
           toast('⚠️ Word not found: ' + word);
           return null;
         }
       } catch (error) {
         console.error('Error loading word data:', error);
-        if (wordsDB[word]) {
-          return wordsDB[word];
-        }
         toast('⚠️ Failed to load word data');
         return null;
       }
@@ -1339,33 +1295,121 @@
     }
 
     // ============================================================
-    // USER WORDS (localStorage for anonymous, server for logged-in)
+    // WORD LIST FUNCTIONS (Server-based for ALL users)
     // ============================================================
-    function initUserWords() {
-      if (IS_AUTHENTICATED) {
-        userWords = [];
+    async function loadWordsList() {
+      const wordListEl = document.getElementById('word-list');
+      wordListEl.innerHTML = '<p style="color:var(--text-muted);padding:1rem;">Loading your words...</p>';
+      
+      try {
+        const response = await fetch('/vocabulary/api/user-words/');
+        const data = await response.json();
+        
+        if (response.ok) {
+          if (IS_AUTHENTICATED) {
+            // For authenticated users, use server data
+            allUserWords = data.words || [];
+          } else {
+            // For anonymous users, merge server words with localStorage
+            const serverWords = data.words || [];
+            const saved = localStorage.getItem('lexicon_words');
+            const localWords = saved ? JSON.parse(saved) : [];
+            
+            // Create a map of local words for quick lookup
+            const localMap = {};
+            localWords.forEach(w => { localMap[w.word] = w; });
+            
+            // Merge: server words with local mastery status
+            allUserWords = serverWords.map(w => {
+              const local = localMap[w.word];
+              if (local) {
+                return { ...w, mastered: local.known || false, mastery_level: local.mastery || 0 };
+              }
+              return { ...w, mastered: false, mastery_level: 0 };
+            });
+            
+            // Add any local words that aren't in the server list
+            const serverWordSet = new Set(serverWords.map(w => w.word));
+            Object.keys(localMap).forEach(word => {
+              if (!serverWordSet.has(word)) {
+                const w = localMap[word];
+                allUserWords.push({
+                  word: w.word,
+                  definition: w.def || 'Custom word',
+                  mastered: w.known || false,
+                  mastery_level: w.mastery || 0
+                });
+              }
+            });
+          }
+          renderFilteredWords();
+        } else {
+          wordListEl.innerHTML = '<p style="color:var(--text-muted);padding:1rem;">Error loading words. Please try again.</p>';
+        }
+      } catch (error) {
+        console.error('Error fetching user words:', error);
+        wordListEl.innerHTML = '<p style="color:var(--text-muted);padding:1rem;">Error loading words. Please try again.</p>';
+      }
+    }
+
+    function renderFilteredWords() {
+      const searchTerm = document.getElementById('word-search').value.toLowerCase().trim();
+      const wordListEl = document.getElementById('word-list');
+      
+      let filtered = allUserWords;
+      
+      if (currentFilter === 'learning') {
+        filtered = filtered.filter(w => !w.mastered);
+      } else if (currentFilter === 'mastered') {
+        filtered = filtered.filter(w => w.mastered);
+      }
+      
+      if (searchTerm) {
+        filtered = filtered.filter(w => 
+          w.word.toLowerCase().includes(searchTerm) || 
+          w.definition.toLowerCase().includes(searchTerm)
+        );
+      }
+      
+      if (filtered.length === 0) {
+        if (allUserWords.length === 0) {
+          wordListEl.innerHTML = '<p style="color:var(--text-muted);padding:1rem;">No words saved yet. Start learning or capture some words!</p>';
+        } else if (searchTerm) {
+          wordListEl.innerHTML = '<p style="color:var(--text-muted);padding:1rem;">No words match your search.</p>';
+        } else {
+          wordListEl.innerHTML = `<p style="color:var(--text-muted);padding:1rem;">No ${currentFilter} words found.</p>`;
+        }
         return;
       }
       
-      const saved = localStorage.getItem('lexicon_words');
-      if (saved) {
-        try {
-          userWords = JSON.parse(saved);
-          return;
-        } catch (e) {
-          // Fall through
-        }
-      }
-      // Initialize with default words (all not known)
-      userWords = Object.keys(wordsDB).map(k => ({ ...wordsDB[k], known: false }));
-      saveUserWords();
+      wordListEl.innerHTML = filtered.map(w =>
+        `<div class="word-row ${w.mastered ? 'known' : ''}">
+          <div class="mastery m${w.mastery_level || 0}"></div>
+          <div class="w">${w.word}</div>
+          <div class="d">${w.definition}</div>
+          <button class="btn btn-ghost btn-sm" onclick="learnWord('${w.word}')">Study</button>
+          ${!w.mastered ? `<button class="btn btn-ghost btn-sm" onclick="markKnown('${w.word}')">Know</button>` : ''}
+        </div>`
+      ).join('');
     }
 
-    function saveUserWords() {
-      if (IS_AUTHENTICATED) {
-        return;
-      }
-      localStorage.setItem('lexicon_words', JSON.stringify(userWords));
+    function setFilter(filter) {
+      currentFilter = filter;
+      document.querySelectorAll('#view-words .words-toolbar .btn-ghost').forEach(btn => {
+        btn.classList.remove('active');
+      });
+      const btnMap = {
+        'all': 'filter-all',
+        'learning': 'filter-learning',
+        'mastered': 'filter-mastered'
+      };
+      const activeBtn = document.getElementById(btnMap[filter]);
+      if (activeBtn) activeBtn.classList.add('active');
+      renderFilteredWords();
+    }
+
+    function handleSearch() {
+      renderFilteredWords();
     }
 
     // ============================================================
@@ -1382,53 +1426,41 @@
       document.getElementById('rating-row').classList.add('hidden');
       document.getElementById('review-answer').classList.remove('visible');
       
-      if (IS_AUTHENTICATED) {
-        try {
-          const response = await fetch('/vocabulary/api/review-words/');
-          const data = await response.json();
-          
-          if (response.ok) {
+      try {
+        const response = await fetch('/vocabulary/api/review-words/');
+        const data = await response.json();
+        
+        if (response.ok) {
+          if (IS_AUTHENTICATED) {
             reviewQueue = data.words || [];
-            reviewIndex = 0;
-            answerRevealed = false;
-            
-            if (reviewQueue.length === 0) {
-              showReviewEmptyState();
-              isReviewLoading = false;
-              return;
-            }
-            updateReviewCard();
+          } else {
+            // For anonymous users, filter out words marked as known in localStorage
+            const saved = localStorage.getItem('lexicon_words');
+            const localWords = saved ? JSON.parse(saved) : [];
+            const knownWords = localWords.filter(w => w.known).map(w => w.word);
+            reviewQueue = (data.words || []).filter(word => !knownWords.includes(word));
+          }
+          reviewIndex = 0;
+          answerRevealed = false;
+          
+          if (reviewQueue.length === 0) {
+            showReviewEmptyState();
             isReviewLoading = false;
             return;
           }
-        } catch (error) {
-          console.error('Error loading review words:', error);
+          // Load word data for the first review word
+          await loadWordData(reviewQueue[0]);
+          updateReviewCard();
+          isReviewLoading = false;
+          return;
         }
+      } catch (error) {
+        console.error('Error loading review words:', error);
       }
       
-      // For anonymous users, use localStorage
-      loadReviewWordsFromLocal();
+      reviewQueue = [];
+      showReviewEmptyState();
       isReviewLoading = false;
-    }
-
-    function loadReviewWordsFromLocal() {
-      if (IS_AUTHENTICATED) {
-        reviewQueue = [];
-        showReviewEmptyState();
-        return;
-      }
-      
-      const knownWords = userWords.filter(w => w.known).map(w => w.word);
-      const allWords = Object.keys(wordsDB);
-      reviewQueue = allWords.filter(word => !knownWords.includes(word));
-      reviewIndex = 0;
-      answerRevealed = false;
-      
-      if (reviewQueue.length === 0) {
-        showReviewEmptyState();
-        return;
-      }
-      updateReviewCard();
     }
 
     function showReviewEmptyState() {
@@ -1452,20 +1484,18 @@
       }
       
       const wordText = reviewQueue[reviewIndex];
-      const w = wordsDB[wordText];
+      const w = wordCache[wordText] || { word: wordText, def: 'Loading...', examples: [''] };
       
-      if (w) {
-        document.getElementById('review-word').textContent = w.word;
-        document.getElementById('review-def').textContent = w.def;
-        const exampleText = (w.examples[0] || '').replace(/<\/?em>/g, '');
-        document.getElementById('review-ex').textContent = exampleText ? '"' + exampleText + '"' : '';
-        document.getElementById('review-answer').classList.remove('visible');
-        document.getElementById('reveal-btn').classList.remove('hidden');
-        document.getElementById('rating-row').classList.add('hidden');
-        document.getElementById('review-count').textContent = (reviewIndex + 1) + ' of ' + reviewQueue.length;
-        document.getElementById('review-progress-fill').style.width = (reviewIndex / reviewQueue.length * 100) + '%';
-        answerRevealed = false;
-      }
+      document.getElementById('review-word').textContent = w.word;
+      document.getElementById('review-def').textContent = w.def || 'Loading...';
+      const exampleText = (w.examples && w.examples[0]) ? w.examples[0].replace(/<\/?em>/g, '') : '';
+      document.getElementById('review-ex').textContent = exampleText ? '"' + exampleText + '"' : '';
+      document.getElementById('review-answer').classList.remove('visible');
+      document.getElementById('reveal-btn').classList.remove('hidden');
+      document.getElementById('rating-row').classList.add('hidden');
+      document.getElementById('review-count').textContent = (reviewIndex + 1) + ' of ' + reviewQueue.length;
+      document.getElementById('review-progress-fill').style.width = (reviewIndex / reviewQueue.length * 100) + '%';
+      answerRevealed = false;
     }
 
     function revealAnswer() {
@@ -1485,10 +1515,8 @@
       };
       toast(messages[level] || 'Review scheduled');
       
-      // If rated 4 (Mastered), mark as known
       if (level === 4) {
         if (IS_AUTHENTICATED) {
-          // Save to server
           try {
             const response = await fetch('/vocabulary/api/mark-known/', {
               method: 'POST',
@@ -1510,32 +1538,34 @@
           }
         } else {
           // Anonymous user - save to localStorage
-          const wordObj = userWords.find(w => w.word === wordText);
-          if (wordObj) {
-            wordObj.known = true;
-            wordObj.mastery = 4;
-            saveUserWords();
+          const saved = localStorage.getItem('lexicon_words');
+          let words = saved ? JSON.parse(saved) : [];
+          const existing = words.find(w => w.word === wordText);
+          if (existing) {
+            existing.known = true;
+            existing.mastery = 4;
           } else {
-            const wordData = wordsDB[wordText];
-            if (wordData) {
-              userWords.push({ ...wordData, known: true, mastery: 4 });
-              saveUserWords();
-            }
+            words.push({ word: wordText, known: true, mastery: 4, def: 'Marked as mastered' });
           }
+          localStorage.setItem('lexicon_words', JSON.stringify(words));
           updateLocalStats('learned');
         }
         
-        // Remove from review queue
         reviewQueue.splice(reviewIndex, 1);
+        
+        // Update the word in allUserWords
+        const wordInList = allUserWords.find(w => w.word === wordText);
+        if (wordInList) {
+          wordInList.mastered = true;
+          wordInList.mastery_level = 4;
+        }
       } else {
-        // For ratings 1-3, just move to next word
         reviewIndex++;
         if (!IS_AUTHENTICATED) {
           updateLocalStats('reviewed');
         }
       }
       
-      // Check if we're done with the queue
       if (reviewIndex >= reviewQueue.length || reviewQueue.length === 0) {
         document.getElementById('review-progress-fill').style.width = '100%';
         if (reviewQueue.length === 0) {
@@ -1543,6 +1573,7 @@
             toast('🎉 All words mastered!'); 
             showReviewEmptyState();
             loadStats();
+            renderFilteredWords();
           }, 300);
         } else {
           setTimeout(() => { 
@@ -1551,11 +1582,15 @@
             document.getElementById('stat-xp').textContent = currentXp + 85; 
             showView('home');
             loadStats();
+            renderFilteredWords();
             setTimeout(() => loadReviewWords(), 500);
           }, 500);
         }
         return;
       }
+      
+      // Load data for the next word before showing it
+      await loadWordData(reviewQueue[reviewIndex]);
       updateReviewCard();
     }
 
@@ -1589,15 +1624,18 @@
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
       document.getElementById('view-' + name).classList.add('active');
       document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('active', b.dataset.view === name));
+      
       if (name === 'review') {
         reviewIndex = 0;
         answerRevealed = false;
         loadReviewWords();
       }
-      if (name === 'words') renderWordList();
+      if (name === 'words') {
+        loadWordsList();
+      }
       if (name === 'learn') loadLearnWord(currentLearnWord);
     }
-    
+
     function toggleTheme() {
       const html = document.documentElement;
       const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
@@ -1619,39 +1657,22 @@
     }
     
     function nextLearnWord() {
-      let nextWord = null;
-      
-      if (IS_AUTHENTICATED) {
-        const allWords = Object.keys(wordsDB);
-        const startIndex = allWords.indexOf(currentLearnWord);
-        
-        for (let i = 1; i <= allWords.length; i++) {
-          const idx = (startIndex + i) % allWords.length;
-          const word = allWords[idx];
-          nextWord = word;
-          break;
-        }
-      } else {
-        const allWords = Object.keys(wordsDB);
-        const startIndex = allWords.indexOf(currentLearnWord);
-        
-        for (let i = 1; i <= allWords.length; i++) {
-          const idx = (startIndex + i) % allWords.length;
-          const word = allWords[idx];
-          const userWord = userWords.find(w => w.word === word);
-          if (!userWord || !userWord.known) {
-            nextWord = word;
-            break;
-          }
-        }
-      }
-      
-      if (nextWord) {
-        loadLearnWord(nextWord);
-        toast('Loaded next word: ' + nextWord);
-      } else {
+      // Get the next word from the user's list
+      const words = allUserWords.filter(w => !w.mastered);
+      if (words.length === 0) {
         toast('🎉 You\'ve learned all words!');
         showView('home');
+        return;
+      }
+      
+      // Find the next word after current
+      const currentIndex = words.findIndex(w => w.word === currentLearnWord);
+      const nextIndex = (currentIndex + 1) % words.length;
+      const nextWord = words[nextIndex];
+      
+      if (nextWord) {
+        loadLearnWord(nextWord.word);
+        toast('Loaded next word: ' + nextWord.word);
       }
     }
     
@@ -1660,7 +1681,7 @@
       fb.className = 'feedback coming-soon visible';
       fb.innerHTML = `
         <div class="fb-title">🚀 Coming soon!</div>
-        <div class="fb-tip">AI-powered sentence checking is on the way. For now, just save your sentence and continue to review. Your sentences will be checked when the feature launches!</div>
+        <div class="fb-tip">AI-powered sentence checking is on the way. For now, just save your sentence and continue to review.</div>
       `;
     }
     
@@ -1678,11 +1699,10 @@
       if (!text.toLowerCase().includes(currentLearnWord.toLowerCase())) { 
         toast('Try to include the word "' + currentLearnWord + '"'); 
         fb.className = 'feedback improve visible';
-        fb.innerHTML = `<div class="fb-title">Include the word "${currentLearnWord}"</div><div class="fb-tip">Try writing a sentence that uses "${currentLearnWord}". This helps you remember it better.</div>`;
+        fb.innerHTML = `<div class="fb-title">Include the word "${currentLearnWord}"</div><div class="fb-tip">Try writing a sentence that uses "${currentLearnWord}".</div>`;
         return;
       }
       
-      // Save the sentence (only in localStorage for now)
       const sentences = JSON.parse(localStorage.getItem('lexicon_sentences') || '{}');
       if (!sentences[currentLearnWord]) {
         sentences[currentLearnWord] = [];
@@ -1705,12 +1725,11 @@
         updateLocalStats('learned');
         
         // Add to user words if not already
-        if (!userWords.find(w => w.word === currentLearnWord)) {
-          const wordData = wordsDB[currentLearnWord];
-          if (wordData) {
-            userWords.push({ ...wordData, known: false });
-            saveUserWords();
-          }
+        const saved = localStorage.getItem('lexicon_words');
+        let words = saved ? JSON.parse(saved) : [];
+        if (!words.find(w => w.word === currentLearnWord)) {
+          words.push({ word: currentLearnWord, known: false, def: 'Learning...', mastery: 0 });
+          localStorage.setItem('lexicon_words', JSON.stringify(words));
         }
       }
       
@@ -1740,31 +1759,35 @@
           return;
         }
       } else {
-        // Anonymous user
-        const item = userWords.find(w => w.word === word);
-        if (item) { 
-          item.known = true; 
-          item.mastery = 4; 
-          saveUserWords(); 
+        // Anonymous user - save to localStorage
+        const saved = localStorage.getItem('lexicon_words');
+        let words = saved ? JSON.parse(saved) : [];
+        const existing = words.find(w => w.word === word);
+        if (existing) {
+          existing.known = true;
+          existing.mastery = 4;
         } else {
-          const wordData = wordsDB[word];
-          if (wordData) {
-            userWords.push({ ...wordData, known: true, mastery: 4 });
-            saveUserWords();
-          }
+          words.push({ word: word, known: true, mastery: 4, def: 'Marked as known' });
         }
+        localStorage.setItem('lexicon_words', JSON.stringify(words));
         toast('"' + word + '" marked as known');
         updateLocalStats('learned');
       }
       
+      // Update allUserWords
+      const wordInList = allUserWords.find(w => w.word === word);
+      if (wordInList) {
+        wordInList.mastered = true;
+        wordInList.mastery_level = 4;
+      }
+      
+      // Refresh the word list if we're on the words tab
+      if (document.getElementById('view-words').classList.contains('active')) {
+        renderFilteredWords();
+      }
+      
       nextLearnWord();
       loadStats();
-    }
-    
-    function resetReview() { 
-      reviewIndex = 0; 
-      answerRevealed = false; 
-      loadReviewWords(); 
     }
     
     document.addEventListener('keydown', (e) => {
@@ -1772,59 +1795,6 @@
       if (e.code === 'Space') { e.preventDefault(); if (!answerRevealed) revealAnswer(); }
       if (answerRevealed && ['1','2','3','4'].includes(e.key)) rate(parseInt(e.key,10));
     });
-    
-    // ============================================================
-    // WORD LIST FUNCTIONS
-    // ============================================================
-    function renderWordList(filter='all') {
-      const q = (document.getElementById('word-search').value||'').toLowerCase();
-      let items = [];
-      
-      if (IS_AUTHENTICATED) {
-        const wordListEl = document.getElementById('word-list');
-        wordListEl.innerHTML = '<p style="color:var(--text-muted);padding:1rem;">Loading your words...</p>';
-        fetchUserWords();
-        return;
-      }
-      
-      items = userWords;
-      if (filter==='learning') items = items.filter(w => !w.known);
-      if (q) items = items.filter(w => w.word.includes(q) || w.def.toLowerCase().includes(q));
-      
-      const wordListEl = document.getElementById('word-list');
-      if (items.length === 0) {
-        wordListEl.innerHTML = '<p style="color:var(--text-muted);padding:1rem;">No words yet. Start learning or save some words!</p>';
-        return;
-      }
-      
-      wordListEl.innerHTML = items.map(w =>
-        '<div class="word-row '+(w.known?'known':'')+'"><div class="mastery m'+w.mastery+'"></div><div class="w">'+w.word+'</div><div class="d">'+w.def+'</div><button class="btn btn-ghost btn-sm" onclick="learnWord(\''+w.word+'\')">Study</button>'+(!w.known?'<button class="btn btn-ghost btn-sm" onclick="markKnown(\''+w.word+'\'); renderWordList()">Know</button>':'')+'</div>'
-      ).join('');
-    }
-
-    async function fetchUserWords() {
-      if (!IS_AUTHENTICATED) return;
-      
-      try {
-        const response = await fetch('/vocabulary/api/user-words/');
-        const data = await response.json();
-        if (response.ok) {
-          const wordListEl = document.getElementById('word-list');
-          if (data.words && data.words.length > 0) {
-            wordListEl.innerHTML = data.words.map(w =>
-              '<div class="word-row '+(w.mastered?'known':'')+'"><div class="mastery m'+(w.mastery_level||0)+'"></div><div class="w">'+w.word+'</div><div class="d">'+w.definition+'</div><button class="btn btn-ghost btn-sm" onclick="learnWord(\''+w.word+'\')">Study</button>'+(w.mastered?'':'<button class="btn btn-ghost btn-sm" onclick="markKnown(\''+w.word+'\'); renderWordList()">Know</button>')+'</div>'
-            ).join('');
-          } else {
-            wordListEl.innerHTML = '<p style="color:var(--text-muted);padding:1rem;">No words saved yet. Start learning!</p>';
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching user words:', error);
-      }
-    }
-    
-    function filterWords() { renderWordList(); }
-    function filterKnown(onlyLearning) { renderWordList(onlyLearning?'learning':'all'); }
     
     // ============================================================
     // CAPTURE FUNCTIONS
@@ -1850,6 +1820,7 @@
               toast('"' + word + '" added to your list');
               document.getElementById('capture-word').value = '';
               document.getElementById('capture-context').value = '';
+              loadWordsList();
             } else {
               toast('⚠️ ' + (data.error || 'Failed to save word'));
             }
@@ -1858,33 +1829,23 @@
       }
       
       // Anonymous user - save to localStorage
-      if (wordsDB[word]) {
-        if (!userWords.find(w => w.word === word)) {
-          userWords.push({ ...wordsDB[word], known: false });
-          saveUserWords();
-        }
-      } else {
-        const context = document.getElementById('capture-context').value.trim();
-        userWords.unshift({ 
-          word: word, 
-          phonetic: '', 
-          pos: '—', 
-          def: context || 'Recently added — definition will be filled in', 
-          examples: context ? [context] : [], 
-          collocations: [], 
-          synonyms: [], 
-          antonyms: [], 
-          mastery: 0, 
-          known: false 
-        });
-        saveUserWords();
+      const saved = localStorage.getItem('lexicon_words');
+      let words = saved ? JSON.parse(saved) : [];
+      if (!words.find(w => w.word === word)) {
+        words.push({ word: word, known: false, def: 'Recently added', mastery: 0 });
+        localStorage.setItem('lexicon_words', JSON.stringify(words));
+      }
+      
+      // Also add to allUserWords if not already there
+      if (!allUserWords.find(w => w.word === word)) {
+        allUserWords.push({ word: word, definition: 'Recently added', mastered: false, mastery_level: 0 });
+        renderFilteredWords();
       }
       
       document.getElementById('capture-word').value = '';
       document.getElementById('capture-context').value = '';
       toast('"' + word + '" added to your list');
       updateLocalStats('added');
-      loadStats();
     }
     
     function addToList(word) {
@@ -1900,6 +1861,7 @@
           .then(data => {
             if (data.success) {
               toast('"' + word + '" saved');
+              loadWordsList();
             } else {
               toast('⚠️ ' + (data.error || 'Failed to save word'));
             }
@@ -1907,13 +1869,20 @@
         return;
       }
       
-      if (userWords.some(w => w.word === word)) { toast('Already in your list'); return; }
-      const data = wordsDB[word] || { word, phonetic:'', pos:'—', def:'Saved from scene / WOTD', examples:[], collocations:[], synonyms:[], antonyms:[], mastery:0 };
-      userWords.push({ ...data, known:false });
-      saveUserWords();
+      const saved = localStorage.getItem('lexicon_words');
+      let words = saved ? JSON.parse(saved) : [];
+      if (!words.find(w => w.word === word)) {
+        words.push({ word: word, known: false, def: 'Saved from scene', mastery: 0 });
+        localStorage.setItem('lexicon_words', JSON.stringify(words));
+      }
+      
+      if (!allUserWords.find(w => w.word === word)) {
+        allUserWords.push({ word: word, definition: 'Saved from scene', mastered: false, mastery_level: 0 });
+        renderFilteredWords();
+      }
+      
       toast('"' + word + '" saved');
       updateLocalStats('added');
-      loadStats();
     }
     
     function runScene() {
@@ -1923,7 +1892,14 @@
       toast('Generated a mini set for: '+input);
     }
     
-    function startDemo() { learnWord('ephemeral'); toast('Demo started — no account needed'); }
+    function startDemo() { 
+      // Load the first word from the user's list or word of the day
+      if (allUserWords.length > 0) {
+        currentLearnWord = allUserWords[0].word;
+      }
+      showView('learn'); 
+      toast('Demo started — no account needed'); 
+    }
     
     function toast(msg) {
       const el = document.getElementById('toast');
@@ -1936,15 +1912,11 @@
     // INITIALIZATION
     // ============================================================
     function init() {
-      initUserWords();
       loadWordOfDay();
       loadNewsletterStatus();
       loadStats();
-      renderWordList();
-      
-      if (IS_AUTHENTICATED) {
-        fetchUserWords();
-      }
+      loadWordsList();
+      document.getElementById('filter-all').classList.add('active');
     }
     
     document.addEventListener('DOMContentLoaded', init);
