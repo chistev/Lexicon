@@ -343,7 +343,7 @@
     .heatmap { display: grid; gap: 0.6rem; }
     .heat-row { display: grid; grid-template-columns: 90px 1fr 36px; align-items: center; gap: 0.6rem; font-size: 0.88rem; }
     .heat-bar { height: 10px; background: var(--bg-subtle); border-radius: 5px; overflow: hidden; }
-    .heat-fill { height: 100%; background: var(--accent); border-radius: 5px; }
+    .heat-fill { height: 100%; background: var(--accent); border-radius: 5px; transition: width 0.4s ease; }
     .streak-big { text-align: center; padding: 1rem 0; }
     .streak-num { font-size: 3rem; font-weight: 700; color: var(--accent); line-height: 1; }
     .streak-label { color: var(--text-muted); font-size: 0.9rem; margin-top: 0.3rem; }
@@ -571,40 +571,48 @@
       <div class="word-list" id="word-list"></div>
     </section>
 
-    <!-- VIEW: DASHBOARD -->
+    <!-- VIEW: DASHBOARD / PROGRESS (fully dynamic) -->
     <section id="view-dashboard" class="view">
       <div class="dash-grid">
         <div class="panel">
           <h3>Vocabulary by topic</h3>
-          <div class="heatmap">
-            <div class="heat-row"><span>Academic</span><div class="heat-bar"><div class="heat-fill" style="width:78%"></div></div><span>78</span></div>
-            <div class="heat-row"><span>Business</span><div class="heat-bar"><div class="heat-fill" style="width:62%"></div></div><span>62</span></div>
-            <div class="heat-row"><span>Daily use</span><div class="heat-bar"><div class="heat-fill" style="width:91%"></div></div><span>91</span></div>
-            <div class="heat-row"><span>Literature</span><div class="heat-bar"><div class="heat-fill" style="width:35%"></div></div><span>35</span></div>
-            <div class="heat-row"><span>Science</span><div class="heat-bar"><div class="heat-fill" style="width:48%"></div></div><span>48</span></div>
+          <div class="heatmap" id="topic-heatmap">
+            <p style="color:var(--text-muted);font-size:0.9rem;">Loading topics…</p>
           </div>
         </div>
         <div class="panel">
           <h3>Your streak</h3>
-          <div class="streak-big"><div class="streak-num">7</div><div class="streak-label">days in a row</div></div>
-          <div class="xp-bar">
-            <div class="xp-label"><span>Level 4</span><span>1,280 / 2,000 XP</span></div>
-            <div class="progress-bar"><div class="progress-fill" style="width:64%"></div></div>
+          <div class="streak-big">
+            <div class="streak-num" id="dash-streak">0</div>
+            <div class="streak-label">days in a row</div>
           </div>
-          <p style="margin-top:1.25rem;font-size:0.88rem;color:var(--text-secondary);">You've learned enough this week to understand roughly <strong>3% more</strong> of a typical newspaper article.</p>
+          <div class="xp-bar">
+            <div class="xp-label">
+              <span id="dash-level">Level 1</span>
+              <span id="dash-xp-text">0 / 200 XP</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" id="dash-xp-fill" style="width:0%"></div>
+            </div>
+          </div>
+          <p id="dash-insight" style="margin-top:1.25rem;font-size:0.88rem;color:var(--text-secondary);">
+            Loading insights…
+          </p>
         </div>
       </div>
+
       <div class="panel" style="margin-top:1.25rem;">
         <h3>Recent activity</h3>
-        <div style="font-size:0.92rem;color:var(--text-secondary);display:grid;gap:0.5rem;">
-          <div>• Learned <strong>ephemeral</strong> and wrote a sentence</div>
-          <div>• Reviewed 8 words — 6 marked Good or Easy</div>
-          <div>• Marked <strong>paradigm</strong> as known</div>
-          <div>• Saved 2 words from a blog post</div>
+        <div id="dash-recent" style="font-size:0.92rem;color:var(--text-secondary);display:grid;gap:0.5rem;">
+          <div>No recent activity yet.</div>
         </div>
       </div>
+
       <div class="ext-card">
-        <div class="ext-header"><div class="ext-icon">🧩</div><h3 style="margin:0;font-size:1rem;">Browser extension</h3></div>
+        <div class="ext-header">
+          <div class="ext-icon">🧩</div>
+          <h3 style="margin:0;font-size:1rem;">Browser extension</h3>
+        </div>
         <p>Hover any word on any website to see a definition and save it to your list. Design preview only.</p>
         <div class="ext-preview">…nearly <span class="hl">ubiquitous</span> across…</div>
         <button class="btn btn-ghost btn-sm" type="button" onclick="toast('Extension — design only')">Coming soon</button>
@@ -1146,7 +1154,7 @@
     }
 
     // ============================================================
-    // STATS FUNCTIONS
+    // STATS + DASHBOARD FUNCTIONS (fully dynamic)
     // ============================================================
     async function loadStats() {
       if (IS_AUTHENTICATED) {
@@ -1155,10 +1163,14 @@
           const data = await response.json();
           
           if (response.ok) {
+            // Home page strip
             document.getElementById('stat-streak').textContent = data.streak || 0;
             document.getElementById('stat-known').textContent = data.known || 0;
             document.getElementById('stat-due').textContent = data.due || 0;
             document.getElementById('stat-xp').textContent = data.xp || 0;
+
+            // Progress tab
+            updateDashboardUI(data);
           }
         } catch (error) {
           console.error('Error loading stats:', error);
@@ -1166,6 +1178,58 @@
         }
       } else {
         updateStatsFromLocal();
+      }
+    }
+
+    function updateDashboardUI(data) {
+      // Streak
+      const streakEl = document.getElementById('dash-streak');
+      if (streakEl) streakEl.textContent = data.streak || 0;
+
+      // Level / XP
+      const levelEl = document.getElementById('dash-level');
+      const xpTextEl = document.getElementById('dash-xp-text');
+      const xpFillEl = document.getElementById('dash-xp-fill');
+      if (levelEl) levelEl.textContent = `Level ${data.level || 1}`;
+      if (xpTextEl) {
+        const xp = data.xp || 0;
+        const next = data.next_level_xp || 200;
+        xpTextEl.textContent = `${xp.toLocaleString()} / ${next.toLocaleString()} XP`;
+      }
+      if (xpFillEl) xpFillEl.style.width = `${data.level_percent || 0}%`;
+
+      // Insight
+      const insightEl = document.getElementById('dash-insight');
+      if (insightEl) insightEl.innerHTML = data.insight || '';
+
+      // Vocabulary by topic
+      const heatmap = document.getElementById('topic-heatmap');
+      if (heatmap) {
+        const topics = data.topics || [];
+        if (topics.length === 0) {
+          heatmap.innerHTML = '<p style="color:var(--text-muted);font-size:0.9rem;">No words yet. Start learning to see your vocabulary by topic.</p>';
+        } else {
+          heatmap.innerHTML = topics.map(t => `
+            <div class="heat-row">
+              <span title="${t.mastered || 0} mastered">${t.category}</span>
+              <div class="heat-bar">
+                <div class="heat-fill" style="width:${t.percent || 0}%"></div>
+              </div>
+              <span>${t.count}</span>
+            </div>
+          `).join('');
+        }
+      }
+
+      // Recent activity
+      const recentEl = document.getElementById('dash-recent');
+      if (recentEl) {
+        const activities = data.recent_activity || [];
+        if (activities.length === 0) {
+          recentEl.innerHTML = '<div>No recent activity yet. Learn or review some words!</div>';
+        } else {
+          recentEl.innerHTML = activities.map(a => `<div>• ${a}</div>`).join('');
+        }
       }
     }
 
@@ -1182,6 +1246,18 @@
         document.getElementById('stat-due').textContent = '0';
         document.getElementById('stat-xp').textContent = '0';
       }
+
+      // Friendly empty state on Progress tab for anonymous users
+      const heatmap = document.getElementById('topic-heatmap');
+      if (heatmap) {
+        heatmap.innerHTML = '<p style="color:var(--text-muted);font-size:0.9rem;">Sign in to see your real vocabulary breakdown by topic.</p>';
+      }
+      const streakEl = document.getElementById('dash-streak');
+      if (streakEl) streakEl.textContent = stats ? (stats.streak || 0) : 0;
+      const insightEl = document.getElementById('dash-insight');
+      if (insightEl) insightEl.textContent = 'Sign in to track progress across devices and unlock topic insights.';
+      const recentEl = document.getElementById('dash-recent');
+      if (recentEl) recentEl.innerHTML = '<div>Sign in to see your recent activity.</div>';
     }
 
     function updateLocalStats(wordAction) {
@@ -1307,19 +1383,15 @@
         
         if (response.ok) {
           if (IS_AUTHENTICATED) {
-            // For authenticated users, use server data
             allUserWords = data.words || [];
           } else {
-            // For anonymous users, merge server words with localStorage
             const serverWords = data.words || [];
             const saved = localStorage.getItem('lexicon_words');
             const localWords = saved ? JSON.parse(saved) : [];
             
-            // Create a map of local words for quick lookup
             const localMap = {};
             localWords.forEach(w => { localMap[w.word] = w; });
             
-            // Merge: server words with local mastery status
             allUserWords = serverWords.map(w => {
               const local = localMap[w.word];
               if (local) {
@@ -1328,7 +1400,6 @@
               return { ...w, mastered: false, mastery_level: 0 };
             });
             
-            // Add any local words that aren't in the server list
             const serverWordSet = new Set(serverWords.map(w => w.word));
             Object.keys(localMap).forEach(word => {
               if (!serverWordSet.has(word)) {
@@ -1434,7 +1505,6 @@
           if (IS_AUTHENTICATED) {
             reviewQueue = data.words || [];
           } else {
-            // For anonymous users, filter out words marked as known in localStorage
             const saved = localStorage.getItem('lexicon_words');
             const localWords = saved ? JSON.parse(saved) : [];
             const knownWords = localWords.filter(w => w.known).map(w => w.word);
@@ -1448,7 +1518,6 @@
             isReviewLoading = false;
             return;
           }
-          // Load word data for the first review word
           await loadWordData(reviewQueue[0]);
           updateReviewCard();
           isReviewLoading = false;
@@ -1537,7 +1606,6 @@
             toast('⚠️ Error saving to server');
           }
         } else {
-          // Anonymous user - save to localStorage
           const saved = localStorage.getItem('lexicon_words');
           let words = saved ? JSON.parse(saved) : [];
           const existing = words.find(w => w.word === wordText);
@@ -1553,7 +1621,6 @@
         
         reviewQueue.splice(reviewIndex, 1);
         
-        // Update the word in allUserWords
         const wordInList = allUserWords.find(w => w.word === wordText);
         if (wordInList) {
           wordInList.mastered = true;
@@ -1589,7 +1656,6 @@
         return;
       }
       
-      // Load data for the next word before showing it
       await loadWordData(reviewQueue[reviewIndex]);
       updateReviewCard();
     }
@@ -1634,6 +1700,10 @@
         loadWordsList();
       }
       if (name === 'learn') loadLearnWord(currentLearnWord);
+      if (name === 'dashboard') {
+        // Refresh stats + topic breakdown every time the user opens Progress
+        loadStats();
+      }
     }
 
     function toggleTheme() {
@@ -1657,7 +1727,6 @@
     }
     
     function nextLearnWord() {
-      // Get the next word from the user's list
       const words = allUserWords.filter(w => !w.mastered);
       if (words.length === 0) {
         toast('🎉 You\'ve learned all words!');
@@ -1665,7 +1734,6 @@
         return;
       }
       
-      // Find the next word after current
       const currentIndex = words.findIndex(w => w.word === currentLearnWord);
       const nextIndex = (currentIndex + 1) % words.length;
       const nextWord = words[nextIndex];
@@ -1724,7 +1792,6 @@
       if (!IS_AUTHENTICATED) {
         updateLocalStats('learned');
         
-        // Add to user words if not already
         const saved = localStorage.getItem('lexicon_words');
         let words = saved ? JSON.parse(saved) : [];
         if (!words.find(w => w.word === currentLearnWord)) {
@@ -1759,7 +1826,6 @@
           return;
         }
       } else {
-        // Anonymous user - save to localStorage
         const saved = localStorage.getItem('lexicon_words');
         let words = saved ? JSON.parse(saved) : [];
         const existing = words.find(w => w.word === word);
@@ -1774,14 +1840,12 @@
         updateLocalStats('learned');
       }
       
-      // Update allUserWords
       const wordInList = allUserWords.find(w => w.word === word);
       if (wordInList) {
         wordInList.mastered = true;
         wordInList.mastery_level = 4;
       }
       
-      // Refresh the word list if we're on the words tab
       if (document.getElementById('view-words').classList.contains('active')) {
         renderFilteredWords();
       }
@@ -1828,7 +1892,6 @@
         return;
       }
       
-      // Anonymous user - save to localStorage
       const saved = localStorage.getItem('lexicon_words');
       let words = saved ? JSON.parse(saved) : [];
       if (!words.find(w => w.word === word)) {
@@ -1836,7 +1899,6 @@
         localStorage.setItem('lexicon_words', JSON.stringify(words));
       }
       
-      // Also add to allUserWords if not already there
       if (!allUserWords.find(w => w.word === word)) {
         allUserWords.push({ word: word, definition: 'Recently added', mastered: false, mastery_level: 0 });
         renderFilteredWords();
@@ -1893,7 +1955,6 @@
     }
     
     function startDemo() { 
-      // Load the first word from the user's list or word of the day
       if (allUserWords.length > 0) {
         currentLearnWord = allUserWords[0].word;
       }

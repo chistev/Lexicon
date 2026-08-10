@@ -1,4 +1,6 @@
 from django.shortcuts import render
+from django.db.models import Count, Q
+from datetime import timedelta
 from django.http import JsonResponse
 from django.utils import timezone
 from django.contrib.auth.decorators import login_required
@@ -45,13 +47,13 @@ def get_user_stats(request):
         mastered_words = UserWord.objects.filter(user=user, mastered=True).count()
         due_for_review = UserWord.objects.filter(user=user, mastered=False).count()
         xp = (mastered_words * 10) + ((total_words - mastered_words) * 5)
-        
-        from datetime import timedelta
+
+        # ---- Streak ----
         today = timezone.now().date()
         today_activity = UserWord.objects.filter(user=user, reviewed_at__date=today).exists()
         yesterday = today - timedelta(days=1)
         yesterday_activity = UserWord.objects.filter(user=user, reviewed_at__date=yesterday).exists()
-        
+
         streak = 0
         if today_activity:
             streak = 1
@@ -65,23 +67,121 @@ def get_user_stats(request):
             while UserWord.objects.filter(user=user, reviewed_at__date=check_date).exists():
                 streak += 1
                 check_date -= timedelta(days=1)
-        
+
+        # ---- Vocabulary by topic (category) ----
+        # Count of user words grouped by Word.category
+        topic_qs = (
+            UserWord.objects
+            .filter(user=user)
+            .values('word__category')
+            .annotate(
+                total=Count('id'),
+                mastered=Count('id', filter=Q(mastered=True))
+            )
+            .order_by('-total')
+        )
+
+        topics = []
+        max_count = 1
+        for row in topic_qs:
+            cat = row['word__category'] or 'Uncategorized'
+            count = row['total']
+            max_count = max(max_count, count)
+            topics.append({
+                'category': cat,
+                'count': count,
+                'mastered': row['mastered'],
+            })
+
+        # Add percentage relative to the largest category (for the heat bar)
+        for t in topics:
+            t['percent'] = round((t['count'] / max_count) * 100) if max_count else 0
+
+        # If the user has no words yet, show the available categories from the whole dictionary
+        if not topics:
+            all_cats = (
+                Word.objects
+                .exclude(category='')
+                .values('category')
+                .annotate(total=Count('id'))
+                .order_by('-total')[:8]
+            )
+            for row in all_cats:
+                topics.append({
+                    'category': row['category'],
+                    'count': 0,
+                    'mastered': 0,
+                    'percent': 0,
+                })
+
+        # ---- Level calculation (simple XP thresholds) ----
+        # Level 1: 0-199, Level 2: 200-499, Level 3: 500-999, Level 4: 1000-1999, Level 5: 2000+
+        level_thresholds = [0, 200, 500, 1000, 2000, 3500, 5500, 8000]
+        level = 1
+        next_level_xp = 200
+        for i, thresh in enumerate(level_thresholds):
+            if xp >= thresh:
+                level = i + 1
+                next_level_xp = level_thresholds[i + 1] if i + 1 < len(level_thresholds) else thresh + 2000
+            else:
+                break
+
+        current_level_xp = level_thresholds[level - 1] if level > 1 else 0
+        progress_in_level = xp - current_level_xp
+        needed_for_next = next_level_xp - current_level_xp
+        level_percent = round((progress_in_level / needed_for_next) * 100) if needed_for_next else 100
+
+        # ---- Recent activity (last 8 actions) ----
+        recent = (
+            UserWord.objects
+            .filter(user=user)
+            .select_related('word')
+            .order_by('-reviewed_at')[:8]
+        )
+        recent_activity = []
+        for uw in recent:
+            if uw.mastered:
+                recent_activity.append(f'Marked <strong>{uw.word.word}</strong> as known')
+            else:
+                recent_activity.append(f'Reviewed / learning <strong>{uw.word.word}</strong>')
+
+        # Fun insight
+        insight_pct = min(15, max(1, round(mastered_words * 0.4))) if mastered_words else 0
+        insight = (
+            f"You've learned enough this week to understand roughly <strong>{insight_pct}% more</strong> of a typical newspaper article."
+            if mastered_words else
+            "Start learning words to unlock insights about your progress."
+        )
+
         return JsonResponse({
             'streak': streak,
             'known': mastered_words,
             'total': total_words,
             'due': due_for_review,
             'xp': xp,
+            'level': level,
+            'level_xp': xp,
+            'next_level_xp': next_level_xp,
+            'level_percent': level_percent,
+            'topics': topics,
+            'recent_activity': recent_activity,
+            'insight': insight,
         })
     else:
-        # For anonymous users, return stats from localStorage
-        # The frontend will handle this
+        # Anonymous – frontend falls back to localStorage
         return JsonResponse({
             'streak': 0,
             'known': 0,
             'total': 0,
             'due': 0,
             'xp': 0,
+            'level': 1,
+            'level_xp': 0,
+            'next_level_xp': 200,
+            'level_percent': 0,
+            'topics': [],
+            'recent_activity': [],
+            'insight': 'Sign in to track your real progress and vocabulary by topic.',
         })
 
 @login_required
@@ -238,33 +338,32 @@ def get_review_words(request):
         })
 
 def get_user_words(request):
-    """Get all words for the user (works for all users)"""
+    """
+    Always return the full word list.
+    For authenticated users, attach their personal mastery status from UserWord.
+    For anonymous users, mastery stays False (frontend uses localStorage).
+    """
+    # Build a quick lookup of the current user's mastery (if logged in)
+    mastery_map = {}  # word_id -> (mastered, mastery_level)
     if request.user.is_authenticated:
-        user = request.user
-        user_words = UserWord.objects.filter(user=user).select_related('word')
-        
-        words_data = []
-        for uw in user_words:
-            words_data.append({
-                'word': uw.word.word,
-                'definition': uw.word.definition,
-                'mastered': uw.mastered,
-                'mastery_level': uw.mastery_level
-            })
-        return JsonResponse({'words': words_data})
-    else:
-        # For anonymous users, return all words from the Word model
-        # The frontend will handle which words are mastered via localStorage
-        all_words = Word.objects.all()
-        words_data = []
-        for word in all_words:
-            words_data.append({
-                'word': word.word,
-                'definition': word.definition,
-                'mastered': False,  # Anonymous users track mastery in localStorage
-                'mastery_level': 0
-            })
-        return JsonResponse({'words': words_data})
+        for uw in UserWord.objects.filter(user=request.user).select_related('word'):
+            mastery_map[uw.word_id] = (uw.mastered, uw.mastery_level)
+
+    words_data = []
+    for word in Word.objects.all():
+        if word.id in mastery_map:
+            mastered, mastery_level = mastery_map[word.id]
+        else:
+            mastered, mastery_level = False, 0
+
+        words_data.append({
+            'word': word.word,
+            'definition': word.definition,
+            'mastered': mastered,
+            'mastery_level': mastery_level,
+        })
+
+    return JsonResponse({'words': words_data})
 
 @csrf_exempt
 def save_word(request):
