@@ -620,30 +620,104 @@
     </section>
 
     <!-- VIEW: CAPTURE -->
-    <section id="view-capture" class="view">
-      <div class="capture-area">
-        <div class="capture-box">
-          <h3>Add a word or sentence</h3>
-          <p>Paste a word, phrase, or whole sentence from an article, book, or transcript. We'll keep the original context.</p>
-          <input type="text" id="capture-word" placeholder="Word or phrase" />
-          <textarea id="capture-context" placeholder="Optional: the sentence or paragraph where you found it..."></textarea>
-          <button class="btn btn-primary" onclick="captureWord()">Add to my list</button>
-        </div>
-        <div class="capture-box">
-          <h3>Scene mode</h3>
-          <p>Describe a situation and get a mini vocabulary set tailored to it. (Demo uses sample results.)</p>
-          <input type="text" id="scene-input" placeholder='e.g. "presenting quarterly results to stakeholders"' />
-          <button class="btn btn-primary" onclick="runScene()">Generate vocabulary</button>
-          <div class="scene-results" id="scene-results">
-            <div class="scene-word"><div><div class="sw">stakeholder</div><div class="sd">A person with an interest or concern in a business</div></div><button class="btn btn-ghost btn-sm" onclick="addToList('stakeholder')">Save</button></div>
-            <div class="scene-word"><div><div class="sw">quarterly</div><div class="sd">Occurring every three months</div></div><button class="btn btn-ghost btn-sm" onclick="addToList('quarterly')">Save</button></div>
-            <div class="scene-word"><div><div class="sw">metrics</div><div class="sd">Standards of measurement used to track performance</div></div><button class="btn btn-ghost btn-sm" onclick="addToList('metrics')">Save</button></div>
-            <div class="scene-word"><div><div class="sw">actionable</div><div class="sd">Able to be acted on; practical and useful</div></div><button class="btn btn-ghost btn-sm" onclick="addToList('actionable')">Save</button></div>
-            <div class="scene-word"><div><div class="sw">headwinds</div><div class="sd">Forces or circumstances that make progress difficult</div></div><button class="btn btn-ghost btn-sm" onclick="addToList('headwinds')">Save</button></div>
+   <!-- VIEW: CAPTURE -->
+<section id="view-capture" class="view">
+  <div class="capture-area">
+
+    <!-- Coming soon banner -->
+    <div style="
+      background: color-mix(in srgb, var(--warning) 12%, var(--bg-elevated));
+      border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--border));
+      border-radius: var(--radius-sm);
+      padding: 0.75rem 1rem;
+      margin-bottom: 1.25rem;
+      font-size: 0.9rem;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    ">
+      <span style="font-size:1.1rem;">🚧</span>
+      <div>
+        <strong>Coming soon</strong> — Capture & Scene mode will use AI once the MVP gains interest. 
+        The interface below shows what it will look like.
+      </div>
+    </div>
+
+    <!-- Add a word or sentence (disabled) -->
+    <div class="capture-box" style="opacity: 0.72; pointer-events: none; position: relative;">
+      <div style="
+        position: absolute; top: 12px; right: 14px;
+        background: var(--warning); color: white;
+        font-size: 0.7rem; font-weight: 600;
+        padding: 0.2rem 0.55rem; border-radius: 999px;
+        letter-spacing: 0.03em;
+      ">COMING SOON</div>
+
+      <h3>Add a word or sentence</h3>
+      <p>Paste a word, phrase, or whole sentence from an article, book, or transcript. We'll keep the original context.</p>
+      <input type="text" id="capture-word" placeholder="Word or phrase" disabled />
+      <textarea id="capture-context" placeholder="Optional: the sentence or paragraph where you found it..." disabled></textarea>
+      <button class="btn btn-primary" disabled>Add to my list</button>
+    </div>
+
+    <!-- Scene mode (disabled) -->
+    <div class="capture-box" style="opacity: 0.72; pointer-events: none; position: relative;">
+      <div style="
+        position: absolute; top: 12px; right: 14px;
+        background: var(--warning); color: white;
+        font-size: 0.7rem; font-weight: 600;
+        padding: 0.2rem 0.55rem; border-radius: 999px;
+        letter-spacing: 0.03em;
+      ">COMING SOON</div>
+
+      <h3>Scene mode</h3>
+      <p>Describe a situation and get a mini vocabulary set tailored to it.</p>
+      <input type="text" id="scene-input" placeholder='e.g. "presenting quarterly results to stakeholders"' disabled />
+      <button class="btn btn-primary" disabled>Generate vocabulary</button>
+
+      <!-- Keep the sample results visible so people understand the output -->
+      <div class="scene-results visible" id="scene-results" style="opacity: 0.85;">
+        <div class="scene-word">
+          <div>
+            <div class="sw">stakeholder</div>
+            <div class="sd">A person with an interest or concern in a business</div>
           </div>
+          <button class="btn btn-ghost btn-sm" disabled>Save</button>
+        </div>
+        <div class="scene-word">
+          <div>
+            <div class="sw">quarterly</div>
+            <div class="sd">Occurring every three months</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" disabled>Save</button>
+        </div>
+        <div class="scene-word">
+          <div>
+            <div class="sw">metrics</div>
+            <div class="sd">Standards of measurement used to track performance</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" disabled>Save</button>
+        </div>
+        <div class="scene-word">
+          <div>
+            <div class="sw">actionable</div>
+            <div class="sd">Able to be acted on; practical and useful</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" disabled>Save</button>
+        </div>
+        <div class="scene-word">
+          <div>
+            <div class="sw">headwinds</div>
+            <div class="sd">Forces or circumstances that make progress difficult</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" disabled>Save</button>
         </div>
       </div>
-    </section>
+    </div>
+
+  </div>
+</section>
   </main>
 
   <footer class="footer">Lexicon prototype · Password policy: any characters, max 128 · No forced signup</footer>
