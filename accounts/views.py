@@ -1,4 +1,4 @@
-from django.shortcuts import render, redirect
+from django.shortcuts import render
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
 from django.http import JsonResponse
@@ -7,8 +7,6 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.sites.shortcuts import get_current_site
 from django.conf import settings
 from django.utils import timezone
-from django.shortcuts import get_object_or_404
-import json
 from .models import NewsletterSubscription
 from .utils import generate_confirmation_token, verify_confirmation_token, send_brevo_email
 

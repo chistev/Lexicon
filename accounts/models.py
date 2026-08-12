@@ -6,7 +6,7 @@ class NewsletterSubscription(models.Model):
         User, 
         on_delete=models.CASCADE, 
         related_name='newsletter_subscription',
-        null=True,  # Allow null for logged-out users
+        null=True, 
         blank=True
     )
     email = models.EmailField()

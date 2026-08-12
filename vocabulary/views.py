@@ -1,4 +1,3 @@
-from django.shortcuts import render
 from django.db.models import Count, Q
 from datetime import timedelta
 from django.http import JsonResponse
