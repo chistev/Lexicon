@@ -26,7 +26,6 @@ def signup(request):
     email = request.POST.get('email', '').strip()
     password = request.POST.get('password', '').strip()
     
-    # Validation
     if not email:
         return JsonResponse({'error': 'Email is required'}, status=400)
     
@@ -36,25 +35,20 @@ def signup(request):
     if len(password) > 128:
         return JsonResponse({'error': 'Password must be 128 characters or less'}, status=400)
     
-    # Check if user exists
     if User.objects.filter(email=email).exists():
         return JsonResponse({'error': 'A user with this email already exists'}, status=400)
     
     try:
-        # Create username from email
         username = email.split('@')[0]
-        # Make username unique if needed
         if User.objects.filter(username=username).exists():
             username = f"{username}_{User.objects.count() + 1}"
         
-        # Create user
         user = User.objects.create_user(
             username=username,
             email=email,
             password=password
         )
         
-        # Log the user in
         login(request, user)
         
         return JsonResponse({
@@ -82,9 +76,7 @@ def signin(request):
         return JsonResponse({'error': 'Email and password are required'}, status=400)
     
     try:
-        # Get user by email
         user = User.objects.get(email=email)
-        # Authenticate with username
         user = authenticate(request, username=user.username, password=password)
         
         if user is not None:
@@ -115,8 +107,6 @@ def signout(request):
         'message': 'Signed out successfully'
     })
 
-# Newsletter Views
-
 def get_site_url(request=None):
     """Get the site URL dynamically"""
     if request:
@@ -136,9 +126,7 @@ def newsletter_subscribe(request):
     if not email:
         return JsonResponse({'error': 'Email is required'}, status=400)
     
-    # Check if user is authenticated
     if request.user.is_authenticated:
-        # Logged in user - link to their account
         subscription, created = NewsletterSubscription.objects.get_or_create(
             user=request.user,
             defaults={'email': email}
@@ -174,12 +162,10 @@ def newsletter_subscribe(request):
             'is_subscribed': True
         })
     
-    # Generate confirmation token
     token = generate_confirmation_token(email)
     subscription.confirmation_token = token
     subscription.save()
     
-    # Send confirmation email via Brevo
     try:
         send_confirmation_email(email, token, request.user if request.user.is_authenticated else None, request)
         return JsonResponse({
@@ -225,7 +211,6 @@ def confirm_newsletter(request, token):
     try:
         subscription = NewsletterSubscription.objects.get(email=email, confirmation_token=token)
         
-        # Check if already confirmed
         if subscription.confirmed_at:
             return JsonResponse({
                 'success': True,
@@ -236,6 +221,12 @@ def confirm_newsletter(request, token):
         subscription.confirmed_at = timezone.now()
         subscription.subscribed_at = timezone.now()
         subscription.save()
+        
+        try:
+            send_subscription_success_email(email, request)
+        except Exception as e:
+            # Log error but don't fail the confirmation
+            print(f"Failed to send success email: {e}")
         
         return JsonResponse({
             'success': True,
@@ -284,8 +275,6 @@ def newsletter_unsubscribe_by_email(request, email):
             'error': 'Email not found in our newsletter list.'
         }, status=400)
 
-# Email Functions
-
 def send_confirmation_email(email, token, user=None, request=None):
     """Send a confirmation email for newsletter subscription using Brevo"""
     site_url = get_site_url(request)
@@ -306,9 +295,6 @@ def send_confirmation_email(email, token, user=None, request=None):
             <a href="{confirm_url}">Confirm Subscription</a>
         </p>
         <p>If you didn't request this, you can safely ignore this email.</p>
-        
-        <p>Lexicon · Vocabulary that sticks</p>
-        <p><a href="{confirm_url}">Confirm Subscription</a></p>
     </body>
     </html>
     """
@@ -325,8 +311,6 @@ def send_confirmation_email(email, token, user=None, request=None):
     
     If you didn't request this, you can safely ignore this email.
     
-    IMPORTANT: To ensure you receive your daily word, please add noreply@lexicon.com to your address book and check your Spam/Junk folder. If you find our emails there, mark them as "Not Spam" so they go to your inbox.
-    
     Lexicon · Vocabulary that sticks
     """
     
@@ -336,6 +320,36 @@ def send_confirmation_email(email, token, user=None, request=None):
         html_content=html_message,
         plain_text_content=plain_message
     )
+    
+def send_subscription_success_email(email, request=None):
+    """Send a success email after subscription confirmation with spam prevention tips"""
+    site_url = get_site_url(request)
+    
+    html_message = f"""
+    <h2>You're subscribed!</h2>
+    <p>Your first word arrives tomorrow morning.</p>
+    <p><b>Please check your Spam folder</b> and mark our email as "Not Spam" if it ends up there.</p>
+    <hr>
+    <p><a href="{site_url}/newsletter/unsubscribe/{email}/">Unsubscribe</a></p>
+    """
+    
+    plain_message = f"""
+    You're subscribed to Lexicon!
+    
+    Your first word arrives tomorrow morning.
+    
+    Please check your Spam folder and mark our email as "Not Spam" if it ends up there.
+
+    Unsubscribe: {site_url}/newsletter/unsubscribe/{email}/
+    """
+    
+    send_brevo_email(
+        to_email=email,
+        subject='Welcome to Lexicon!',
+        html_content=html_message,
+        plain_text_content=plain_message
+    )
+    
 
 def send_word_of_day_brevo(email, word_data):
     """Send the Word of the Day email via Brevo API"""
@@ -346,7 +360,7 @@ def send_word_of_day_brevo(email, word_data):
     html_message = f"""
     <html>
     <body>
-        <h1>📖 Word of the Day</h1>
+        <h1>Word of the Day</h1>
         
         <p>Today's word is:</p>
         <h2>{word_data['word']}</h2>
@@ -354,13 +368,6 @@ def send_word_of_day_brevo(email, word_data):
         <p>
             <a href="{learn_more_url}">Click here to learn more about this word</a>
         </p>
-        
-        <hr>
-        
-        <p><strong>💡 Tip:</strong> To ensure you never miss a word, add <strong>noreply@lexicon.com</strong> to your address book and check your <strong>Spam/Junk</strong> folder daily. If you find our emails there, mark them as <strong>"Not Spam"</strong>.</p>
-        
-        <hr>
-        
         <p>
             <a href="{unsubscribe_url}">Unsubscribe</a> · 
             You're receiving this because you subscribed to the Lexicon Word of the Day newsletter.
@@ -373,8 +380,6 @@ def send_word_of_day_brevo(email, word_data):
     Word of the Day: {word_data['word']}
     
     Learn more about this word at: {learn_more_url}
-    
-    Tip: To ensure you never miss a word, add noreply@lexicon.com to your address book and check your Spam/Junk folder daily. If you find our emails there, mark them as "Not Spam".
     
     Unsubscribe: {unsubscribe_url}
     """
