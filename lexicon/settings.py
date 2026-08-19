@@ -121,3 +121,8 @@ BREVO_API_KEY = os.getenv('BREVO_API_KEY', '')
 BREVO_SENDER_EMAIL = os.getenv('BREVO_SENDER_EMAIL', 'noreply@lexicon.com')
 BREVO_SENDER_NAME = os.getenv('BREVO_SENDER_NAME', 'Lexicon')
 BREVO_REPLY_TO = os.getenv('BREVO_REPLY_TO', 'noreply@lexicon.com')
+
+STATIC_URL = 'static/'
+STATICFILES_DIRS = [
+    BASE_DIR / 'static',
+]
