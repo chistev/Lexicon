@@ -9,21 +9,116 @@ from .models import Word, UserWord
 import json
 
 def get_word_of_day(request):
-    """Get the current word of the day"""
+    """Get the current word of the day - same for all users."""
     today = timezone.now().date()
-    
-    try:
-        wotd = Word.objects.get(is_word_of_day=True, word_of_day_date=today)
-    except Word.DoesNotExist:
-        wotd = Word.objects.first()
-        if wotd:
-            wotd.is_word_of_day = True
-            wotd.word_of_day_date = today
-            wotd.save()
-    
+
+    # ---------------------------------------------------------
+    # 1. Check for a valid existing WOTD for today.
+    # ---------------------------------------------------------
+    todays_wotds = Word.objects.filter(
+        is_word_of_day=True,
+        word_of_day_date=today
+    ).order_by('id')
+
+    # Only trust the current WOTD if there is exactly one.
+    if todays_wotds.count() == 1:
+        wotd = todays_wotds.first()
+
+        return JsonResponse({
+            'word': wotd.word,
+            'phonetic': wotd.phonetic,
+            'pos': wotd.pos,
+            'definition': wotd.definition,
+            'level': wotd.level,
+            'category': wotd.category,
+            'examples': wotd.examples,
+            'collocations': wotd.collocations,
+            'synonyms': wotd.synonyms,
+            'antonyms': wotd.antonyms,
+            'mastery': wotd.mastery,
+        })
+
+    # ---------------------------------------------------------
+    # 2. Find a word that has never been used as WOTD.
+    #
+    # is_word_of_day=True is also our historical "used" flag.
+    # ---------------------------------------------------------
+    used_word_ids = Word.objects.filter(
+        is_word_of_day=True
+    ).values_list('id', flat=True)
+
+    available_word = (
+        Word.objects
+        .exclude(id__in=used_word_ids)
+        .order_by('id')
+        .first()
+    )
+
+    if available_word:
+        # Clear any broken/duplicate current-day WOTD state.
+        Word.objects.filter(
+            is_word_of_day=True,
+            word_of_day_date=today
+        ).update(
+            is_word_of_day=False,
+            word_of_day_date=None
+        )
+
+        available_word.is_word_of_day = True
+        available_word.word_of_day_date = today
+        available_word.save(
+            update_fields=[
+                'is_word_of_day',
+                'word_of_day_date'
+            ]
+        )
+
+        wotd = available_word
+
+        return JsonResponse({
+            'word': wotd.word,
+            'phonetic': wotd.phonetic,
+            'pos': wotd.pos,
+            'definition': wotd.definition,
+            'level': wotd.level,
+            'category': wotd.category,
+            'examples': wotd.examples,
+            'collocations': wotd.collocations,
+            'synonyms': wotd.synonyms,
+            'antonyms': wotd.antonyms,
+            'mastery': wotd.mastery,
+        })
+
+    # ---------------------------------------------------------
+    # 3. All words have been used.
+    #    Start a completely new cycle.
+    # ---------------------------------------------------------
+
+    # IMPORTANT:
+    # Clear BOTH flags, not just word_of_day_date.
+    Word.objects.all().update(
+        is_word_of_day=False,
+        word_of_day_date=None
+    )
+
+    # Pick the first word in the new cycle.
+    wotd = Word.objects.order_by('id').first()
+
     if not wotd:
-        return JsonResponse({'error': 'No words available'}, status=404)
-    
+        return JsonResponse(
+            {'error': 'No words available'},
+            status=404
+        )
+
+    wotd.is_word_of_day = True
+    wotd.word_of_day_date = today
+    wotd.save(
+        update_fields=[
+            'is_word_of_day',
+            'word_of_day_date'
+        ]
+    )
+
     return JsonResponse({
         'word': wotd.word,
         'phonetic': wotd.phonetic,
@@ -37,7 +132,7 @@ def get_word_of_day(request):
         'antonyms': wotd.antonyms,
         'mastery': wotd.mastery,
     })
-
+    
 def get_user_stats(request):
     """Get stats for the user (works for both authenticated and anonymous)"""
     if request.user.is_authenticated:
@@ -48,27 +143,37 @@ def get_user_stats(request):
         xp = (mastered_words * 10) + ((total_words - mastered_words) * 5)
 
         # ---- Streak ----
+        from django.db.models.functions import TruncDate
+
         today = timezone.now().date()
-        today_activity = UserWord.objects.filter(user=user, reviewed_at__date=today).exists()
-        yesterday = today - timedelta(days=1)
-        yesterday_activity = UserWord.objects.filter(user=user, reviewed_at__date=yesterday).exists()
+
+        activity_dates = list(
+            UserWord.objects
+            .filter(user=user)
+            .annotate(day=TruncDate('reviewed_at'))
+            .values_list('day', flat=True)
+            .distinct()
+            .order_by('-day')
+        )
 
         streak = 0
-        if today_activity:
-            streak = 1
-            check_date = today - timedelta(days=1)
-            while UserWord.objects.filter(user=user, reviewed_at__date=check_date).exists():
-                streak += 1
-                check_date -= timedelta(days=1)
-        elif yesterday_activity:
-            streak = 1
-            check_date = yesterday - timedelta(days=1)
-            while UserWord.objects.filter(user=user, reviewed_at__date=check_date).exists():
-                streak += 1
-                check_date -= timedelta(days=1)
+        if activity_dates:
+            if activity_dates[0] == today:
+                expected = today
+            elif activity_dates[0] == today - timedelta(days=1):
+                expected = today - timedelta(days=1)
+            else:
+                expected = None
+
+            if expected is not None:
+                for day in activity_dates:
+                    if day == expected:
+                        streak += 1
+                        expected -= timedelta(days=1)
+                    else:
+                        break
 
         # ---- Vocabulary by topic (category) ----
-        # Count of user words grouped by Word.category
         topic_qs = (
             UserWord.objects
             .filter(user=user)
@@ -79,7 +184,6 @@ def get_user_stats(request):
             )
             .order_by('-total')
         )
-
         topics = []
         max_count = 1
         for row in topic_qs:
@@ -92,11 +196,9 @@ def get_user_stats(request):
                 'mastered': row['mastered'],
             })
 
-        # Add percentage relative to the largest category (for the heat bar)
         for t in topics:
             t['percent'] = round((t['count'] / max_count) * 100) if max_count else 0
 
-        # If the user has no words yet, show the available categories from the whole dictionary
         if not topics:
             all_cats = (
                 Word.objects
@@ -113,8 +215,7 @@ def get_user_stats(request):
                     'percent': 0,
                 })
 
-        # ---- Level calculation (simple XP thresholds) ----
-        # Level 1: 0-199, Level 2: 200-499, Level 3: 500-999, Level 4: 1000-1999, Level 5: 2000+
+        # ---- Level calculation ----
         level_thresholds = [0, 200, 500, 1000, 2000, 3500, 5500, 8000]
         level = 1
         next_level_xp = 200
@@ -130,7 +231,7 @@ def get_user_stats(request):
         needed_for_next = next_level_xp - current_level_xp
         level_percent = round((progress_in_level / needed_for_next) * 100) if needed_for_next else 100
 
-        # ---- Recent activity (last 8 actions) ----
+        # ---- Recent activity ----
         recent = (
             UserWord.objects
             .filter(user=user)
@@ -144,7 +245,6 @@ def get_user_stats(request):
             else:
                 recent_activity.append(f'Reviewed / learning <strong>{uw.word.word}</strong>')
 
-        # Fun insight
         insight_pct = min(15, max(1, round(mastered_words * 0.4))) if mastered_words else 0
         insight = (
             f"You've learned enough this week to understand roughly <strong>{insight_pct}% more</strong> of a typical newspaper article."
@@ -167,7 +267,6 @@ def get_user_stats(request):
             'insight': insight,
         })
     else:
-        # Anonymous – frontend falls back to localStorage
         return JsonResponse({
             'streak': 0,
             'known': 0,
@@ -369,35 +468,44 @@ def save_word(request):
     """Save a word for the user (works for all users)"""
     if request.method != 'POST':
         return JsonResponse({'error': 'Method not allowed'}, status=405)
-    
+
     try:
         data = json.loads(request.body)
         word_text = data.get('word', '').strip().lower()
         context = data.get('context', '')
-        
+
         if not word_text:
             return JsonResponse({'error': 'Word is required'}, status=400)
-        
-        # Get or create the word in the database
-        word, created = Word.objects.get_or_create(
-            word=word_text,
-            defaults={'definition': context or 'Recently added — definition will be filled in'}
-        )
-        
-        # If user is authenticated, save to their account
+
+        # Try to get the existing word
+        try:
+            word = Word.objects.get(word=word_text)
+            word_created = False
+            # Update definition if a new context was provided
+            if context:
+                word.definition = context
+                word.save()
+        except Word.DoesNotExist:
+            word = Word.objects.create(
+                word=word_text,
+                definition=context or 'Recently added — definition will be filled in'
+            )
+            word_created = True
+
+        # If user is authenticated, also create the UserWord link
         if request.user.is_authenticated:
-            user_word, created = UserWord.objects.get_or_create(
+            UserWord.objects.get_or_create(
                 user=request.user,
                 word=word,
                 defaults={'mastered': False, 'mastery_level': 0}
             )
-        
+
         return JsonResponse({
             'success': True,
             'message': f'Word "{word_text}" saved',
-            'created': created
+            'created': word_created
         })
-        
+
     except json.JSONDecodeError:
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
     except Exception as e:
