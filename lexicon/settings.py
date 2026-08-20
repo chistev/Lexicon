@@ -13,10 +13,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-2cf*l_4865hprt99c4+h)uvjxp98#bkd&p=ydwuy%szes*)%58'
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-2cf*l_4865hprt99c4+h)uvjxp98#bkd&p=ydwuy%szes*)%58')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DEBUG', 'True') == 'True'
 
 ALLOWED_HOSTS = []
 
@@ -118,9 +118,9 @@ BASE_URL = os.getenv('BASE_URL', 'http://127.0.0.1:8000')
 
 # Brevo configuration
 BREVO_API_KEY = os.getenv('BREVO_API_KEY', '')
-BREVO_SENDER_EMAIL = os.getenv('BREVO_SENDER_EMAIL', 'noreply@lexicon.com')
+BREVO_SENDER_EMAIL = os.getenv('BREVO_SENDER_EMAIL', 'stephen@rxjourney.net')
 BREVO_SENDER_NAME = os.getenv('BREVO_SENDER_NAME', 'Lexicon')
-BREVO_REPLY_TO = os.getenv('BREVO_REPLY_TO', 'noreply@lexicon.com')
+BREVO_REPLY_TO = os.getenv('BREVO_REPLY_TO', 'chistev12@gmail.com')
 
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [
